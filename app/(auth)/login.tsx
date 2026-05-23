@@ -1,16 +1,71 @@
 import {
   View, Text, TextInput, TouchableOpacity,
   KeyboardAvoidingView, Platform, ActivityIndicator,
-  StatusBar, Alert, ScrollView, StyleSheet,
+  StatusBar, Alert, ScrollView, StyleSheet, Animated,
 } from 'react-native';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useRouter } from 'expo-router';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { loginSchema, type LoginFormValues } from '@/src/features/auth/auth.schema';
 import { loginRequest } from '@/src/features/auth/auth.service';
 import { useAuthStore } from '@/src/store/auth.store';
+import { Ionicons } from '@expo/vector-icons';
 
+// ── Label flotante ───────────────────────────────────────────
+function FloatingInput({
+  label, value, onChangeText, onBlur,
+  secureTextEntry, keyboardType, hasError, rightElement,
+}: {
+  label: string; value: string;
+  onChangeText: (v: string) => void; onBlur?: () => void;
+  secureTextEntry?: boolean; keyboardType?: any;
+  hasError?: boolean; rightElement?: React.ReactNode;
+}) {
+  const anim = useRef(new Animated.Value(value ? 1 : 0)).current;
+  const [focused, setFocused] = useState(false);
+
+  const up   = () => Animated.timing(anim, { toValue: 1, duration: 180, useNativeDriver: false }).start();
+  const down = () => { if (!value) Animated.timing(anim, { toValue: 0, duration: 180, useNativeDriver: false }).start(); };
+
+  const top   = anim.interpolate({ inputRange: [0, 1], outputRange: [18, -2] });
+  const size  = anim.interpolate({ inputRange: [0, 1], outputRange: [16, 12] });
+  const color = anim.interpolate({ inputRange: [0, 1], outputRange: ['#737781', '#004481'] });
+  const border = hasError ? '#ba1a1a' : focused ? '#004481' : '#c2c6d2';
+
+  return (
+    <View style={fi.wrap}>
+      <View style={[fi.field, { borderBottomColor: border }]}>
+        <Animated.Text style={[fi.label, { top, fontSize: size, color }]}>{label}</Animated.Text>
+        <TextInput
+          style={fi.input}
+          value={value}
+          onChangeText={onChangeText}
+          onFocus={() => { setFocused(true); up(); }}
+          onBlur={() => { setFocused(false); down(); onBlur?.(); }}
+          secureTextEntry={secureTextEntry}
+          keyboardType={keyboardType}
+          autoCapitalize="none"
+          autoCorrect={false}
+          selectionColor="#004481"
+        />
+        {rightElement && <View style={fi.right}>{rightElement}</View>}
+      </View>
+      {hasError && <Text style={fi.error}>Campo requerido</Text>}
+    </View>
+  );
+}
+
+const fi = StyleSheet.create({
+  wrap:  { marginBottom: 24 },
+  field: { borderBottomWidth: 2, paddingBottom: 8, paddingTop: 22 },
+  label: { position: 'absolute', left: 0, fontWeight: '600' },
+  input: { fontSize: 16, color: '#1a1c1c', paddingVertical: 0 },
+  right: { position: 'absolute', right: 0, top: 18 },
+  error: { marginTop: 4, fontSize: 11, color: '#ba1a1a' },
+});
+
+// ── Pantalla ─────────────────────────────────────────────────
 export default function LoginScreen() {
   const router  = useRouter();
   const login   = useAuthStore((s) => s.login);
@@ -21,10 +76,6 @@ export default function LoginScreen() {
     resolver: zodResolver(loginSchema),
     defaultValues: { email: '', password: '' },
   });
-
-  // Hora para saludo
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas noches';
 
   const onSubmit = async (values: LoginFormValues) => {
     try {
@@ -41,58 +92,70 @@ export default function LoginScreen() {
 
   return (
     <View style={s.root}>
-      <StatusBar barStyle="light-content" backgroundColor="#072146" />
+      <StatusBar barStyle="light-content" backgroundColor="#004481" />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          contentContainerStyle={{ flexGrow: 1, justifyContent: 'space-between' }}
+          keyboardShouldPersistTaps="handled"
+        >
 
           {/* ── Header ── */}
           <View style={s.header}>
-            <Text style={s.bbva}>BBVA</Text>
+            <TouchableOpacity style={s.headerBtn}>
+              <Ionicons name="menu" size={24} color="#fff" />
+            </TouchableOpacity>
+            <Text style={s.headerTitle}>BBVA</Text>
+            <TouchableOpacity style={s.headerBtn}>
+              <Ionicons name="help-circle-outline" size={24} color="#fff" />
+            </TouchableOpacity>
           </View>
 
           {/* ── Cuerpo ── */}
           <View style={s.body}>
 
             {/* Saludo */}
-            <Text style={s.greeting}>{greeting}</Text>
-            <Text style={s.subtitle}>Panel administrativo</Text>
+            <View style={s.welcomeWrap}>
+              <Text style={s.welcomeTitle}>Hola, ¿qué tal?</Text>
+              <Text style={s.welcomeSub}>
+                Inicia sesión para gestionar tus finanzas con total seguridad.
+              </Text>
+            </View>
 
-            {/* Botón principal — lleva al formulario */}
-            {/* Formulario */}
+            {/* Card */}
             <View style={s.card}>
-
-              {/* Email */}
-              <Text style={s.label}>Correo electrónico</Text>
               <Controller control={control} name="email"
                 render={({ field: { onChange, onBlur, value } }) => (
-                  <TextInput
-                    style={[s.input, errors.email && s.inputError]}
-                    onChangeText={onChange} onBlur={onBlur} value={value}
-                    placeholder="admin@bbva.com" placeholderTextColor="#8899AA"
-                    keyboardType="email-address" autoCapitalize="none" autoCorrect={false}
+                  <FloatingInput
+                    label="Correo electrónico"
+                    value={value} onChangeText={onChange} onBlur={onBlur}
+                    keyboardType="email-address" hasError={!!errors.email}
                   />
                 )} />
-              {errors.email && <Text style={s.errorTxt}>⚠ {errors.email.message}</Text>}
 
-              {/* Password */}
-              <Text style={[s.label, { marginTop: 16 }]}>Contraseña</Text>
-              <View>
-                <Controller control={control} name="password"
-                  render={({ field: { onChange, onBlur, value } }) => (
-                    <TextInput
-                      style={[s.input, { paddingRight: 52 }, errors.password && s.inputError]}
-                      onChangeText={onChange} onBlur={onBlur} value={value}
-                      placeholder="••••••••" placeholderTextColor="#8899AA"
-                      secureTextEntry={!showPwd} autoCapitalize="none"
-                    />
-                  )} />
-                <TouchableOpacity onPress={() => setShowPwd(v => !v)} style={s.eye}>
-                  <Text style={{ fontSize: 18 }}>{showPwd ? '🙈' : '👁️'}</Text>
-                </TouchableOpacity>
+              <Controller control={control} name="password"
+                render={({ field: { onChange, onBlur, value } }) => (
+                  <FloatingInput
+                    label="Contraseña"
+                    value={value} onChangeText={onChange} onBlur={onBlur}
+                    secureTextEntry={!showPwd} hasError={!!errors.password}
+                    rightElement={
+                      <TouchableOpacity onPress={() => setShowPwd(v => !v)}>
+                        <Ionicons
+                          name={showPwd ? 'eye-off-outline' : 'eye-outline'}
+                          size={20} color="#737781"
+                        />
+                      </TouchableOpacity>
+                    }
+                  />
+                )} />
+
+              {/* Acceso seguro */}
+              <View style={s.secureRow}>
+                <Ionicons name="lock-closed" size={16} color="#004481" />
+                <Text style={s.secureText}>ACCESO SEGURO</Text>
               </View>
-              {errors.password && <Text style={s.errorTxt}>⚠ {errors.password.message}</Text>}
 
-              {/* Botón */}
+              {/* Botón entrar */}
               <TouchableOpacity
                 onPress={handleSubmit(onSubmit)}
                 disabled={loading}
@@ -100,29 +163,46 @@ export default function LoginScreen() {
                 style={[s.btn, loading && s.btnDisabled]}
               >
                 {loading
-                  ? <ActivityIndicator color="#072146" />
-                  : <Text style={s.btnTxt}>Iniciar sesión</Text>
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={s.btnTxt}>Entrar</Text>
                 }
               </TouchableOpacity>
-            </View>
 
-            {/* Links inferiores al estilo BBVA */}
-            <View style={s.links}>
-              <TouchableOpacity>
-                <Text style={s.link}>¿Olvidaste tu contraseña?</Text>
+              {/* Links */}
+              <TouchableOpacity style={s.forgotWrap}>
+                <Text style={s.forgotTxt}>Olvidé mi contraseña</Text>
               </TouchableOpacity>
             </View>
 
-            {/* Demo credentials */}
-            <View style={s.demo}>
-              <Text style={s.demoTitle}>ACCESO DEMO</Text>
-              <Text style={s.demoTxt}>admin@bbva.com  ·  Admin123!</Text>
+            {/* Trust */}
+            <View style={s.trust}>
+              <View style={s.trustIcons}>
+                <Ionicons name="shield-checkmark-outline" size={28} color="#004481" />
+                <Ionicons name="finger-print-outline"     size={28} color="#004481" />
+                <Ionicons name="shield-half-outline"      size={28} color="#004481" />
+              </View>
+              <Text style={s.trustTxt}>
+                Protegido por sistemas de seguridad de nivel bancario global.
+              </Text>
             </View>
-
+            {/* Spacer para empujar el footer abajo */}
+            <View style={{ flex: 1, minHeight: 40 }} />
+            
           </View>
+          
 
+          
           {/* Footer */}
-          <Text style={s.footer}>DSD-2303 · Instituto Tecnológico de Oaxaca</Text>
+          <View style={s.footer}>
+            <View style={s.footerLinks}>
+              {['Cajeros y Oficinas', 'Atención al cliente', 'Privacidad'].map((l) => (
+                <TouchableOpacity key={l}>
+                  <Text style={s.footerLink}>{l}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={s.footerCopy}>© 2026 BBVA S.A.</Text>
+          </View>
 
         </ScrollView>
       </KeyboardAvoidingView>
@@ -131,42 +211,57 @@ export default function LoginScreen() {
 }
 
 const s = StyleSheet.create({
-  root:        { flex: 1, backgroundColor: '#072146' },
-  header:      { paddingTop: 56, paddingBottom: 32, alignItems: 'center' },
-  bbva:        { fontSize: 28, fontWeight: '900', color: '#FFFFFF', letterSpacing: 4 },
+  root:        { flex: 1, backgroundColor: '#f9f9f9' },
 
-  body:        { flex: 1, paddingHorizontal: 24 },
-  greeting:    { fontSize: 32, fontWeight: '800', color: '#FFFFFF', marginBottom: 4 },
-  subtitle:    { fontSize: 14, color: '#7A9BB5', marginBottom: 32 },
+  header:      { backgroundColor: '#004481', flexDirection: 'row',
+                 justifyContent: 'space-between', alignItems: 'center',
+                 paddingHorizontal: 16, paddingTop: 48, paddingBottom: 16 },
+  headerBtn:   { padding: 8 },
+  headerTitle: { fontSize: 22, fontWeight: '800', color: '#fff', letterSpacing: 0.5 },
 
-  card:        { backgroundColor: '#0E2D54', borderRadius: 20, padding: 24,
-                 shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
-                 shadowOpacity: 0.3, shadowRadius: 16, elevation: 10 },
+  body:        { paddingHorizontal: 20, paddingTop: 32 },
 
-  label:       { fontSize: 12, fontWeight: '700', color: '#7A9BB5',
-                 letterSpacing: 1, marginBottom: 8, textTransform: 'uppercase' },
-  input:       { backgroundColor: '#162E4D', borderWidth: 1, borderColor: '#1E3D60',
-                 borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
-                 fontSize: 15, color: '#FFFFFF' },
-  inputError:  { borderColor: '#FF5252' },
-  errorTxt:    { marginTop: 6, fontSize: 12, color: '#FF5252' },
-  eye:         { position: 'absolute', right: 16, top: 14 },
+  welcomeWrap: { marginBottom: 24 },
+  welcomeTitle:{ fontSize: 26, fontWeight: '700', color: '#002e5a', marginBottom: 6 },
+  welcomeSub:  { fontSize: 15, color: '#5d5f5f', lineHeight: 22 },
 
-  btn:         { marginTop: 28, backgroundColor: '#FFFFFF', borderRadius: 12,
-                 paddingVertical: 16, alignItems: 'center' },
-  btnDisabled: { backgroundColor: '#3A5270' },
-  btnTxt:      { fontSize: 16, fontWeight: '800', color: '#072146', letterSpacing: 0.5 },
+  card:        { backgroundColor: '#fff', borderRadius: 16, padding: 24,
+                 borderWidth: 1, borderColor: 'rgba(194,198,210,0.5)',
+                 shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+                 shadowOpacity: 0.06, shadowRadius: 8, elevation: 3,
+                 marginBottom: 32 },
 
-  links:       { marginTop: 24, alignItems: 'center' },
-  link:        { fontSize: 13, color: '#2DCCCD', fontWeight: '600' },
+  secureRow:   { flexDirection: 'row', alignItems: 'center', gap: 6,
+                 paddingVertical: 12, marginBottom: 8 },
+  secureText:  { fontSize: 11, fontWeight: '700', color: '#004481',
+                 letterSpacing: 1.5 },
 
-  demo:        { marginTop: 32, padding: 16, backgroundColor: '#0E2D54',
-                 borderRadius: 12, borderLeftWidth: 3, borderLeftColor: '#2DCCCD',
-                 alignItems: 'center' },
-  demoTitle:   { fontSize: 10, fontWeight: '800', color: '#2DCCCD',
-                 letterSpacing: 2, marginBottom: 6 },
-  demoTxt:     { fontSize: 12, color: '#7A9BB5', fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' },
+  btn:         { backgroundColor: '#004481', borderRadius: 10,
+                 height: 52, alignItems: 'center', justifyContent: 'center',
+                 shadowColor: '#004481', shadowOffset: { width: 0, height: 4 },
+                 shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 },
+  btnDisabled: { backgroundColor: '#7a9bb5' },
+  btnTxt:      { fontSize: 15, fontWeight: '700', color: '#fff', letterSpacing: 0.5 },
 
-  footer:      { textAlign: 'center', fontSize: 10, color: '#2A4A6A',
-                 paddingVertical: 24 },
+  forgotWrap:  { alignItems: 'center', paddingVertical: 20 },
+  forgotTxt:   { fontSize: 13, fontWeight: '600', color: '#004481' },
+
+  divider:     { height: 1, backgroundColor: '#e2e2e2', marginBottom: 20 },
+
+  noAccount:   { fontSize: 13, color: '#5d5f5f', textAlign: 'center', marginBottom: 12 },
+  clienteBtn:  { borderWidth: 2, borderColor: '#004481', borderRadius: 10,
+                 height: 52, alignItems: 'center', justifyContent: 'center' },
+  clienteTxt:  { fontSize: 14, fontWeight: '700', color: '#004481' },
+
+  trust:       { alignItems: 'center', marginBottom: 32, opacity: 0.6 },
+  trustIcons:  { flexDirection: 'row', gap: 24, marginBottom: 12 },
+  trustTxt:    { fontSize: 11, fontWeight: '600', color: '#424750',
+                 textAlign: 'center', letterSpacing: 0.3, lineHeight: 16 },
+
+  footer:      { borderTopWidth: 1, borderTopColor: 'rgba(194,198,210,0.3)',
+                 paddingHorizontal: 20, paddingVertical: 24 },
+  footerLinks: { flexDirection: 'row', justifyContent: 'center',
+                 gap: 20, marginBottom: 12, flexWrap: 'wrap' },
+  footerLink:  { fontSize: 11, fontWeight: '600', color: '#5d5f5f' },
+  footerCopy:  { textAlign: 'center', fontSize: 11, color: '#737781' },
 });
