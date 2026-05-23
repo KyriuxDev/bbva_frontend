@@ -48,14 +48,6 @@ export default function WelcomeScreen() {
         >
           <Text style={s.btnPrimaryTxt}>Entrar</Text>
         </TouchableOpacity>
-
-        <TouchableOpacity
-          style={s.btnSecondary}
-          activeOpacity={0.9}
-          onPress={() => router.replace('/(auth)/login')}
-        >
-          <Text style={s.btnSecondaryTxt}>Quiero una cuenta</Text>
-        </TouchableOpacity>
       </View>
 
       {/* ── Home indicator ── */}
