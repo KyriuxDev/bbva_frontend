@@ -578,7 +578,7 @@ export default function Dashboard() {
                   {[
                     { label: 'Total transacciones analizadas', val: fmt(etlResumen.total_transacciones) },
                     { label: 'Fraudes detectados',             val: fmt(etlResumen.total_fraudes) },
-                    { label: 'Tasa de fraude',                 val: `${etlResumen.tasa_fraude_pct?.toFixed(2)}%` },
+                    { label: 'Tasa de fraude',                 val: `${Number(etlResumen.tasa_fraude_pct || 0).toFixed(2)}%` },
                     { label: 'Monto total en riesgo',          val: fmtMXN(etlResumen.monto_total_fraude) },
                     { label: 'Monto promedio por fraude',      val: fmtMXN(etlResumen.monto_promedio_fraude) },
                   ].map((row, i) => (
