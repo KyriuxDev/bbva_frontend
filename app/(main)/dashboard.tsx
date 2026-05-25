@@ -303,8 +303,17 @@ export default function Dashboard() {
       const token   = useAuthStore.getState().accessToken;
       const fileUri = FileSystem.documentDirectory + `reporte-bbva-${Date.now()}.pdf`;
 
+      // Construimos los parámetros de consulta según las opciones seleccionadas en la interfaz
+      const queryParams = [
+        `kpis=${incKpi}`,
+        `fraude=${incFraud}`,
+        `debilidades=${incDeb}`,
+        `recomendaciones=${incRec}`,
+        `graficas=${incGraph}`
+      ].join('&');
+
       const result = await FileSystem.downloadAsync(
-        `${process.env.EXPO_PUBLIC_API_URL}/reportes/kpis`,
+        `${process.env.EXPO_PUBLIC_API_URL}/reportes/kpis?${queryParams}`,
         fileUri,
         { headers: { Authorization: `Bearer ${token}` } },
       );
