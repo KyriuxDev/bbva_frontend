@@ -80,40 +80,20 @@ export default function LoginScreen() {
   const onSubmit = async (values: LoginFormValues) => {
     try {
       setLoading(true);
-      
-      const trimmedEmail = values.email.trim().toLowerCase();
-      const trimmedPassword = values.password.trim();
-
-      // ── BYPASS INSTANTÁNEO ──
-      // Si son las credenciales de prueba, ingresamos de inmediato sin esperar al backend
-      const lowerPwd = trimmedPassword.toLowerCase();
-      if (trimmedEmail === 'admin@bbva.com' && (lowerPwd === 'admin123' || lowerPwd === 'admin123!' || trimmedPassword === 'Admin123!')) {
-        await login('mock-dev-token-xyz123', {
-          id: 1,
-          email: 'admin@bbva.com',
-          nombre: 'Admin'
-        });
-        router.replace('/(main)/dashboard');
-        return;
-      }
-
-      // Si son otras credenciales, intentamos conectar al servidor real
-      try {
-        const { token, admin } = await loginRequest({
-          email: trimmedEmail,
-          password: trimmedPassword
-        });
-        await login(token, admin);
-        router.replace('/(main)/dashboard');
-      } catch (backendError) {
-        console.warn('Fallo al conectar con el backend real:', backendError);
-        throw new Error('No se pudo establecer conexión con el servidor. Verifica que el backend esté en ejecución.');
-      }
+      const { token, admin } = await loginRequest({
+        email:    values.email.trim().toLowerCase(),
+        password: values.password.trim(),
+      });
+      await login(token, admin);
+      router.replace('/(main)/dashboard');
     } catch (err: unknown) {
-      const msg = (err as Error)?.message ?? 
-        'Error de acceso. Asegúrate de ingresar las credenciales correctas o verifica el servidor.';
+      const msg = (err as any)?.response?.data?.message
+        ?? (err as Error)?.message
+        ?? 'Credenciales incorrectas o servidor no disponible.';
       Alert.alert('Error de acceso', msg);
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
