@@ -247,6 +247,7 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<'Inicio' | 'KPIs' | 'Reportes' | 'Debilidades'>('Inicio');
   const [hideAmounts, setHideAmounts] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [reportHistory, setReportHistory] = useState<{ name: string; date: string; uri: string }[]>([]);
   const [incKpi, setIncKpi]   = useState(true);
   const [incFraud, setIncFraud] = useState(true);
   const [incDeb, setIncDeb]   = useState(true);
@@ -300,16 +301,29 @@ export default function Dashboard() {
   const handleDownloadPDF = async () => {
     try {
       setDownloading(true);
-      const token   = useAuthStore.getState().accessToken;
-      const fileUri = FileSystem.documentDirectory + `reporte-bbva-${Date.now()}.pdf`;
+      const token    = useAuthStore.getState().accessToken;
+      const fileName = `reporte-bbva-${Date.now()}.pdf`;
+      const fileUri  = FileSystem.documentDirectory + fileName;
+
+      const params = new URLSearchParams({
+        kpis:            String(incKpi),
+        fraude:          String(incFraud),
+        debilidades:     String(incDeb),
+        recomendaciones: String(incRec),
+        graficas:        String(incGraph),
+      });
 
       const result = await FileSystem.downloadAsync(
-        `${process.env.EXPO_PUBLIC_API_URL}/reportes/kpis`,
+        `${process.env.EXPO_PUBLIC_API_URL}/reportes/kpis?${params}`,
         fileUri,
         { headers: { Authorization: `Bearer ${token}` } },
       );
 
       if (result.status === 200) {
+        // Agregar a historial
+        const fecha = new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+        setReportHistory(prev => [{ name: fileName, date: fecha, uri: result.uri }, ...prev]);
+
         const canShare = await Sharing.isAvailableAsync();
         if (canShare) {
           await Sharing.shareAsync(result.uri, {
@@ -622,6 +636,35 @@ export default function Dashboard() {
                 <View style={s.heroTag}><Text style={s.heroTagTxt}>Soluciones</Text></View>
               </View>
             </View>
+
+            {/* ── Historial de reportes ── */}
+            {reportHistory.length > 0 && (
+              <>
+                <Text style={s.sectionHeader}>REPORTES GENERADOS</Text>
+                {reportHistory.map((rep, idx) => (
+                  <TouchableOpacity
+                    key={idx}
+                    style={s.repListItem}
+                    activeOpacity={0.8}
+                    onPress={async () => {
+                      const canShare = await Sharing.isAvailableAsync();
+                      if (canShare) await Sharing.shareAsync(rep.uri, { mimeType: 'application/pdf' });
+                    }}
+                  >
+                    <View style={s.pdfIconContainer}>
+                      <Ionicons name="document-text-outline" size={24} color="#ba1a1a" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.repFileName} numberOfLines={1}>{rep.name}</Text>
+                      <Text style={s.repSubText}>{rep.date}</Text>
+                    </View>
+                    <View style={s.repDownloadBtn}>
+                      <Ionicons name="share-outline" size={20} color="#004481" />
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </>
+            )}
 
             <Text style={s.sectionHeader}>PERSONALIZAR REPORTE</Text>
             <View style={s.customizeCard}>
