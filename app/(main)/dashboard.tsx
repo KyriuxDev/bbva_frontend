@@ -3,6 +3,7 @@ import {
   View, Text, TouchableOpacity, ScrollView,
   StyleSheet, Dimensions, StatusBar, Switch,
   ActivityIndicator, Alert, Animated, Easing, PanResponder, Modal, RefreshControl,
+  LayoutAnimation, UIManager, Platform,
 } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -52,6 +53,45 @@ const PRIORIDAD_COLOR: Record<string, string> = {
 const UMBRALES: Record<string, number> = {
   porcentajeFraudePotencial: 5, porcentajeCobrosExcedidos: 10,
   porcentajeCuentasCanceladas: 20, porcentajePrestamosVencidos: 15, porcentajeMetasFallidas: 30,
+};
+const EXPLICACIONES: Record<string, string> = {
+  'Fraude Potencial':         'de cada 100 transacciones son sospechosas de fraude',
+  'Cobros Excedidos':         'de cada 100 cobros superan el límite permitido por regulación',
+  'Cuentas Canceladas':       'de cada 100 cuentas fueron cerradas en el periodo',
+  'Préstamos Vencidos':       'de cada 100 clientes no están pagando su préstamo a tiempo',
+  'Metas de Ahorro Fallidas': 'de cada 100 metas de ahorro no se completaron',
+};
+const PASOS_ACCION: Record<string, string[]> = {
+  Seguridad: [
+    'Revisar las transacciones marcadas como sospechosas en el último período',
+    'Bloquear temporalmente las cuentas con más de 3 alertas activas',
+    'Notificar al cliente vía app y solicitar confirmación de actividad reciente',
+    'Reportar los patrones detectados al equipo de ciberseguridad',
+  ],
+  Cumplimiento: [
+    'Auditar los tipos de cobro que superan el límite regulatorio',
+    'Ajustar los parámetros de cobro en el sistema de facturación',
+    'Generar reporte de incidencias para el área de cumplimiento normativo',
+    'Capacitar al equipo en la normativa de cobros vigente',
+  ],
+  Retención: [
+    'Identificar los motivos de cancelación más frecuentes mediante encuestas',
+    'Contactar a clientes en riesgo de cancelación con oferta de retención personalizada',
+    'Diseñar programa de beneficios para cuentas con más de 12 meses de antigüedad',
+    'Analizar si el problema es de producto, precio o experiencia de usuario',
+  ],
+  Cartera: [
+    'Identificar a los clientes con más de 30 días de atraso en sus pagos',
+    'Enviar notificación de reestructuración de deuda con opciones flexibles',
+    'Ofrecer plan de pagos con quita de intereses moratorios para casos críticos',
+    'Escalar a cobranza extrajudicial si el atraso supera los 90 días',
+  ],
+  Ahorro: [
+    'Revisar si las metas configuradas son alcanzables con el perfil financiero del cliente',
+    'Enviar recordatorios automáticos cuando el ahorro está por debajo del ritmo esperado',
+    'Proponer metas ajustadas con montos más pequeños y plazos más cortos',
+    'Analizar en qué punto del periodo se abandona la meta con mayor frecuencia',
+  ],
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -401,7 +441,10 @@ function RiskIndicator({ label, value, umbral, icon }: {
     }).start();
   }, [value]);
 
-  const animWidth = anim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] });
+  const animWidth  = anim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] });
+  const x          = Math.round(value);
+  const sufijo     = EXPLICACIONES[label];
+  const explicacion = sufijo ? `${x} ${sufijo}` : null;
 
   return (
     <View style={[s.riskCard, { backgroundColor: bgColor, borderColor: color + '44' }]}>
@@ -426,6 +469,12 @@ function RiskIndicator({ label, value, umbral, icon }: {
       <View style={{ height: 7, backgroundColor: color + '25', borderRadius: 4, overflow: 'hidden' }}>
         <Animated.View style={{ width: animWidth, height: '100%', backgroundColor: color, borderRadius: 4 }} />
       </View>
+      {explicacion && (
+        <Text style={{ fontSize: 11, color: isRisk ? '#ba1a1a' : '#737781',
+          fontWeight: isRisk ? '600' : '400', marginTop: 8, lineHeight: 15 }}>
+          {explicacion}
+        </Text>
+      )}
     </View>
   );
 }
@@ -437,9 +486,29 @@ function DebCard({ sol, idx, expandedId, setExpandedId }: {
   sol: Solucion; idx: number;
   expandedId: number | null; setExpandedId: (v: number | null) => void;
 }) {
-  const icon  = AREA_ICONS[sol.area]  ?? 'alert-circle-outline';
-  const color = PRIORIDAD_COLOR[sol.prioridad] ?? '#737781';
-  const bg    = sol.prioridad === 'Alta' ? '#fbebeb' : sol.prioridad === 'Media' ? '#fff7e6' : '#e6f7f0';
+  const icon       = AREA_ICONS[sol.area]  ?? 'alert-circle-outline';
+  const color      = PRIORIDAD_COLOR[sol.prioridad] ?? '#737781';
+  const bg         = sol.prioridad === 'Alta' ? '#fbebeb' : sol.prioridad === 'Media' ? '#fff7e6' : '#e6f7f0';
+  const isExpanded = expandedId === idx;
+  const pasos      = PASOS_ACCION[sol.area] ?? [];
+
+  // Animación fade de los pasos al expandir
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      UIManager.setLayoutAnimationEnabledExperimental?.(true);
+    }
+    Animated.timing(fadeAnim, {
+      toValue: isExpanded ? 1 : 0,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [isExpanded]);
+
+  const handleToggle = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedId(isExpanded ? null : idx);
+  };
 
   return (
     <View style={s.debDetailCard}>
@@ -455,21 +524,41 @@ function DebCard({ sol, idx, expandedId, setExpandedId }: {
           <Text style={s.debTitle}>{sol.problema}</Text>
         </View>
       </View>
-      <TouchableOpacity style={s.accordionBtn}
-        onPress={() => setExpandedId(expandedId === idx ? null : idx)}>
+
+      <TouchableOpacity style={s.accordionBtn} onPress={handleToggle}>
         <Text style={s.accordionBtnText}>
-          {expandedId === idx ? 'Ocultar solución' : 'Ver solución completa'}
+          {isExpanded ? 'Ocultar plan de acción' : 'Ver plan de acción'}
         </Text>
-        <Ionicons name={expandedId === idx ? 'chevron-up' : 'chevron-down'} size={16} color="#004481" />
+        <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color="#004481" />
       </TouchableOpacity>
-      {expandedId === idx && (
-        <View style={s.accordionContent}>
-          <Text style={s.mitigationTitle}>Plan de Mitigación</Text>
-          <View style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-start' }}>
-            <Ionicons name="arrow-forward-circle-outline" size={15} color="#ba1a1a" style={{ marginTop: 1 }} />
-            <Text style={{ fontSize: 12, color: '#475569', lineHeight: 18, flex: 1 }}>{sol.solucion}</Text>
-          </View>
-        </View>
+
+      {isExpanded && (
+        <Animated.View style={[s.accordionContent, { opacity: fadeAnim }]}>
+          <Text style={s.mitigationTitle}>Pasos de acción</Text>
+          {pasos.map((paso, i) => (
+            <View key={i} style={{ flexDirection: 'row', gap: 10, marginBottom: 10, alignItems: 'flex-start' }}>
+              <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: color,
+                alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
+                <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>{i + 1}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: '#1a1c1c', marginBottom: 1 }}>
+                  Paso {i + 1}
+                </Text>
+                <Text style={{ fontSize: 12, color: '#475569', lineHeight: 18 }}>{paso}</Text>
+              </View>
+            </View>
+          ))}
+          {sol.solucion ? (
+            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start',
+              backgroundColor: color + '12', borderRadius: 8, padding: 10, marginTop: 4 }}>
+              <Ionicons name="bulb-outline" size={14} color={color} style={{ marginTop: 1 }} />
+              <Text style={{ fontSize: 11, color: '#475569', lineHeight: 16, flex: 1 }}>
+                {sol.solucion}
+              </Text>
+            </View>
+          ) : null}
+        </Animated.View>
       )}
     </View>
   );
