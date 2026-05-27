@@ -238,7 +238,7 @@ function AnimatedBarChart({
 function InteractiveLineChart({
   data, color = '#004481', valueFormatter,
 }: {
-  data: { label: string; value: number }[];
+  data: { label: string; value: number; tooltip?: string }[];
   color?: string;
   valueFormatter?: (v: number) => string;
 }) {
@@ -314,8 +314,8 @@ function InteractiveLineChart({
         <View style={{ backgroundColor: color + '15', borderRadius: 10, padding: 10,
           borderLeftWidth: 3, borderLeftColor: color, marginBottom: 8 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Ionicons name="location-outline" size={13} color={color} />
-            <Text style={{ fontSize: 12, color, fontWeight: '700' }}>{active.label}</Text>
+            <Ionicons name="calendar-outline" size={13} color={color} />
+            <Text style={{ fontSize: 12, color, fontWeight: '700' }}>{active.tooltip ?? active.label}</Text>
           </View>
           <Text style={{ fontSize: 13, fontWeight: '800', color: '#1a1c1c', marginTop: 2 }}>
             {fmtVal(active.value)}
@@ -1172,8 +1172,13 @@ export default function Dashboard() {
               <Text style={s.cardSubtitle}>{fraudePorMes.length} meses</Text>
               {fraudePorMes.length > 0
                 ? <InteractiveLineChart
-                    data={fraudePorMes.map((d: FraudePorMes) => ({ label: d.año_mes.substring(5), value: d.total_fraudes }))}
-                    color="#ba1a1a" valueFormatter={fmt}
+                    data={fraudePorMes.map((d: FraudePorMes) => ({
+                      label:   d.año_mes.substring(5),
+                      tooltip: fmtMesLargo(d.año_mes),
+                      value:   d.total_fraudes,
+                    }))}
+                    color="#ba1a1a"
+                    valueFormatter={(v) => `${fmt(v)} alertas`}
                   />
                 : <SkeletonCard height={160} lines={2} />}
               {conclusionFraudes && (
