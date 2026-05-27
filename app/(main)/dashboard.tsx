@@ -1058,9 +1058,7 @@ export default function Dashboard() {
                 { icon: 'people-outline',         label: 'Total Clientes',      val: kpisResumen && fmt(kpisResumen.totalClientes),            trend: 'up',   txt: 'Registrados' },
                 { icon: 'checkmark-circle-outline',label: 'Cuentas Activas',    val: kpisResumen && fmt(kpisResumen.cuentasActivas),           trend: 'up',   txt: 'Vigentes' },
                 { icon: 'cash-outline',            label: 'Saldo Total',        val: kpisResumen && fmtMXN(kpisResumen.saldoTotalCuentas),     trend: 'up',   txt: 'Cuentas act.' },
-                { icon: 'trending-up-outline',     label: 'Txs Hoy',            val: kpisResumen && fmt(kpisResumen.transaccionesHoy),         trend: 'up',   txt: 'Último día' },
-                { icon: 'document-text-outline',   label: 'Préstamos Vigentes', val: kpisResumen && fmt(kpisResumen.prestamosActivos),         trend: 'up',   txt: 'Activos' },
-                { icon: 'wallet-outline',          label: 'Cartera Préstamos',  val: kpisResumen && fmtMXN(kpisResumen.montoPrestamosVigentes),trend: 'up',   txt: 'Vigente' },
+                { icon: 'trending-up-outline',     label: 'Transacciones Hoy',  val: kpisResumen && fmt(kpisResumen.transaccionesHoy),         trend: 'up',   txt: 'Último día' },
                 { icon: 'shield-outline',          label: 'Alertas Fraude',     val: kpisResumen && fmt(kpisResumen.fraudesPotenciales),       trend: 'down', txt: 'Potenciales' },
                 { icon: 'alert-circle-outline',    label: 'Cobros Excedidos',   val: kpisResumen && fmt(kpisResumen.cobrosExcedidos),          trend: 'warn', txt: 'Exceden límite' },
               ].map((kpi, i) => {
