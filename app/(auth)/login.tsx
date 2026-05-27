@@ -1,9 +1,9 @@
 import {
   View, Text, TextInput, TouchableOpacity,
   KeyboardAvoidingView, Platform, ActivityIndicator,
-  StatusBar, Alert, ScrollView, StyleSheet, Animated,
+  StatusBar, ScrollView, StyleSheet, Animated,
 } from 'react-native';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -11,16 +11,29 @@ import { loginSchema, type LoginFormValues } from '@/src/features/auth/auth.sche
 import { loginRequest } from '@/src/features/auth/auth.service';
 import { useAuthStore } from '@/src/store/auth.store';
 import { Ionicons } from '@expo/vector-icons';
+import Svg, { Path } from 'react-native-svg';
+
+// ── Logo SVG BBVA ────────────────────────────────────────────
+function BbvaLogo() {
+  return (
+    <Svg width={90} height={24} viewBox="0 0 162 40">
+      <Path d="M0 0H14.1209C21.8491 0 26.6859 4.39126 26.6859 10.4578C26.6859 13.9877 24.8272 17.0321 21.6631 18.7301C25.5661 20.2526 28.0241 23.9056 28.0241 28.1671C28.0241 35.107 23.0757 40 14.3811 40H0V0ZM14.1209 17.0321C18.1727 17.0321 20.4402 14.7183 20.4402 11.0057C20.4402 7.29302 18.21 4.97921 14.1209 4.97921H6.24498V17.0321H14.1209ZM14.3811 35.0213C18.8418 35.0213 21.7375 32.551 21.7375 28.3497C21.7375 24.1484 18.8046 21.6781 14.3439 21.6781H6.24498V35.0213H14.3811Z" fill="white"/>
+      <Path d="M33.6748 0H47.7957C55.5239 0 60.3607 4.39126 60.3607 10.4578C60.3607 13.9877 58.502 17.0321 55.3379 18.7301C59.2409 20.2526 61.6989 23.9056 61.6989 28.1671C61.6989 35.107 56.7505 40 48.0559 40H33.6748V0ZM47.7957 17.0321C51.8475 17.0321 54.115 14.7183 54.115 11.0057C54.115 7.29302 51.8848 4.97921 47.7957 4.97921H39.9198V17.0321H47.7957ZM48.0559 35.0213C52.5166 35.0213 55.4123 32.551 55.4123 28.3497C55.4123 24.1484 52.4794 21.6781 48.0187 21.6781H39.9198V35.0213H48.0559Z" fill="white"/>
+      <Path d="M92.7314 0H99.4224L83.0294 40H76.4128L60.0198 0H66.7108L79.7211 31.7301L92.7314 0Z" fill="white"/>
+      <Path d="M121.317 0L142 33.6748V40H135.346V35.9282L121.317 12.9868L107.288 35.9282V40H100.634V33.6748L121.317 0Z" fill="white"/>
+    </Svg>
+  );
+}
 
 // ── Label flotante ───────────────────────────────────────────
 function FloatingInput({
   label, value, onChangeText, onBlur,
-  secureTextEntry, keyboardType, hasError, rightElement,
+  secureTextEntry, keyboardType, hasError, errorMsg, rightElement,
 }: {
   label: string; value: string;
   onChangeText: (v: string) => void; onBlur?: () => void;
   secureTextEntry?: boolean; keyboardType?: any;
-  hasError?: boolean; rightElement?: React.ReactNode;
+  hasError?: boolean; errorMsg?: string; rightElement?: React.ReactNode;
 }) {
   const anim = useRef(new Animated.Value(value ? 1 : 0)).current;
   const [focused, setFocused] = useState(false);
@@ -51,7 +64,7 @@ function FloatingInput({
         />
         {rightElement && <View style={fi.right}>{rightElement}</View>}
       </View>
-      {hasError && <Text style={fi.error}>Campo requerido</Text>}
+      {hasError && <Text style={fi.error}>{errorMsg ?? 'Campo requerido'}</Text>}
     </View>
   );
 }
@@ -69,8 +82,20 @@ const fi = StyleSheet.create({
 export default function LoginScreen() {
   const router  = useRouter();
   const login   = useAuthStore((s) => s.login);
-  const [loading, setLoading] = useState(false);
-  const [showPwd, setShowPwd] = useState(false);
+  const [loading,    setLoading]    = useState(false);
+  const [showPwd,    setShowPwd]    = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+
+  // ── Animación de entrada ─────────────────────────────────────
+  const cardOpacity   = useRef(new Animated.Value(0)).current;
+  const cardTranslate = useRef(new Animated.Value(28)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(cardOpacity,   { toValue: 1, duration: 400, delay: 100, useNativeDriver: true }),
+      Animated.timing(cardTranslate, { toValue: 0, duration: 400, delay: 100, useNativeDriver: true }),
+    ]).start();
+  }, []);
 
   const { control, handleSubmit, formState: { errors } } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -80,6 +105,7 @@ export default function LoginScreen() {
   const onSubmit = async (values: LoginFormValues) => {
     try {
       setLoading(true);
+      setLoginError(null);
       const { token, admin } = await loginRequest({
         email:    values.email.trim().toLowerCase(),
         password: values.password.trim(),
@@ -90,7 +116,7 @@ export default function LoginScreen() {
       const msg = (err as any)?.response?.data?.message
         ?? (err as Error)?.message
         ?? 'Credenciales incorrectas o servidor no disponible.';
-      Alert.alert('Error de acceso', msg);
+      setLoginError(msg);
     } finally {
       setLoading(false);
     }
@@ -107,10 +133,10 @@ export default function LoginScreen() {
 
           {/* ── Header ── */}
           <View style={s.header}>
-            <TouchableOpacity style={s.headerBtn}>
-              <Ionicons name="menu" size={24} color="#fff" />
+            <TouchableOpacity style={s.headerBtn} onPress={() => router.back()}>
+              <Ionicons name="arrow-back" size={24} color="#fff" />
             </TouchableOpacity>
-            <Text style={s.headerTitle}>BBVA</Text>
+            <BbvaLogo />
             <TouchableOpacity style={s.headerBtn}>
               <Ionicons name="help-circle-outline" size={24} color="#fff" />
             </TouchableOpacity>
@@ -127,14 +153,27 @@ export default function LoginScreen() {
               </Text>
             </View>
 
-            {/* Card */}
-            <View style={s.card}>
+            {/* Card animado */}
+            <Animated.View style={[s.card, { opacity: cardOpacity, transform: [{ translateY: cardTranslate }] }]}>
+
+              {/* Banner de error inline */}
+              {loginError && (
+                <View style={s.errorBanner}>
+                  <Ionicons name="warning-outline" size={18} color="#ba1a1a" style={{ marginRight: 8, flexShrink: 0 }} />
+                  <Text style={s.errorBannerTxt}>{loginError}</Text>
+                </View>
+              )}
+
               <Controller control={control} name="email"
                 render={({ field: { onChange, onBlur, value } }) => (
                   <FloatingInput
                     label="Correo electrónico"
-                    value={value} onChangeText={onChange} onBlur={onBlur}
-                    keyboardType="email-address" hasError={!!errors.email}
+                    value={value}
+                    onChangeText={(v) => { onChange(v); setLoginError(null); }}
+                    onBlur={onBlur}
+                    keyboardType="email-address"
+                    hasError={!!errors.email}
+                    errorMsg="Ingresa un correo válido"
                   />
                 )} />
 
@@ -142,8 +181,12 @@ export default function LoginScreen() {
                 render={({ field: { onChange, onBlur, value } }) => (
                   <FloatingInput
                     label="Contraseña"
-                    value={value} onChangeText={onChange} onBlur={onBlur}
-                    secureTextEntry={!showPwd} hasError={!!errors.password}
+                    value={value}
+                    onChangeText={(v) => { onChange(v); setLoginError(null); }}
+                    onBlur={onBlur}
+                    secureTextEntry={!showPwd}
+                    hasError={!!errors.password}
+                    errorMsg="La contraseña es requerida"
                     rightElement={
                       <TouchableOpacity onPress={() => setShowPwd(v => !v)}>
                         <Ionicons
@@ -178,7 +221,7 @@ export default function LoginScreen() {
               <TouchableOpacity style={s.forgotWrap}>
                 <Text style={s.forgotTxt}>Olvidé mi contraseña</Text>
               </TouchableOpacity>
-            </View>
+            </Animated.View>
 
             {/* Trust */}
             <View style={s.trust}>
@@ -191,13 +234,10 @@ export default function LoginScreen() {
                 Protegido por sistemas de seguridad de nivel bancario global.
               </Text>
             </View>
-            {/* Spacer para empujar el footer abajo */}
             <View style={{ flex: 1, minHeight: 40 }} />
-            
-          </View>
-          
 
-          
+          </View>
+
           {/* Footer */}
           <View style={s.footer}>
             <View style={s.footerLinks}>
@@ -223,7 +263,6 @@ const s = StyleSheet.create({
                  justifyContent: 'space-between', alignItems: 'center',
                  paddingHorizontal: 16, paddingTop: 48, paddingBottom: 16 },
   headerBtn:   { padding: 8 },
-  headerTitle: { fontSize: 22, fontWeight: '800', color: '#fff', letterSpacing: 0.5 },
 
   body:        { paddingHorizontal: 20, paddingTop: 32 },
 
@@ -236,6 +275,14 @@ const s = StyleSheet.create({
                  shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
                  shadowOpacity: 0.06, shadowRadius: 8, elevation: 3,
                  marginBottom: 32 },
+
+  // ── Error banner ──
+  errorBanner: { flexDirection: 'row', alignItems: 'flex-start',
+                 backgroundColor: '#fff0f0', borderRadius: 10,
+                 borderWidth: 1, borderColor: '#fcc', borderLeftWidth: 4,
+                 borderLeftColor: '#ba1a1a',
+                 padding: 12, marginBottom: 20 },
+  errorBannerTxt: { fontSize: 13, color: '#ba1a1a', flex: 1, lineHeight: 18 },
 
   secureRow:   { flexDirection: 'row', alignItems: 'center', gap: 6,
                  paddingVertical: 12, marginBottom: 8 },
@@ -251,13 +298,6 @@ const s = StyleSheet.create({
 
   forgotWrap:  { alignItems: 'center', paddingVertical: 20 },
   forgotTxt:   { fontSize: 13, fontWeight: '600', color: '#004481' },
-
-  divider:     { height: 1, backgroundColor: '#e2e2e2', marginBottom: 20 },
-
-  noAccount:   { fontSize: 13, color: '#5d5f5f', textAlign: 'center', marginBottom: 12 },
-  clienteBtn:  { borderWidth: 2, borderColor: '#004481', borderRadius: 10,
-                 height: 52, alignItems: 'center', justifyContent: 'center' },
-  clienteTxt:  { fontSize: 14, fontWeight: '700', color: '#004481' },
 
   trust:       { alignItems: 'center', marginBottom: 32, opacity: 0.6 },
   trustIcons:  { flexDirection: 'row', gap: 24, marginBottom: 12 },
