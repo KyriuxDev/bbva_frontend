@@ -26,6 +26,11 @@ const STALE = 5 * 60 * 1000; // 5 min de caché
 
 // ── Helpers ───────────────────────────────────────────────────
 const fmt    = (n: number) => Math.round(n).toLocaleString('es-MX');
+const MESES_ES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const fmtMesLargo = (añoMes: string) => {
+  const [año, mes] = añoMes.split('-');
+  return `${MESES_ES[parseInt(mes, 10) - 1]} ${año}`;
+};
 const fmtMXN = (n: number) => {
   if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
   if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
@@ -947,6 +952,49 @@ export default function Dashboard() {
   const altaCount   = soluciones.filter(s => s.prioridad === 'Alta').length;
   const val = (v: string | number | undefined) => v !== undefined ? String(v) : '...';
 
+  // ── Conclusión: tendencia mensual de fraudes ─────────────────
+  const conclusionFraudes = (() => {
+    if (fraudePorMes.length < 3) return null;
+    const pico    = fraudePorMes.reduce((m, d) => d.total_fraudes > m.total_fraudes ? d : m);
+    const tercio  = Math.max(1, Math.floor(fraudePorMes.length / 3));
+    const avgIni  = fraudePorMes.slice(0, tercio).reduce((s, d) => s + d.total_fraudes, 0) / tercio;
+    const avgFin  = fraudePorMes.slice(-tercio).reduce((s, d) => s + d.total_fraudes, 0) / tercio;
+    const dir     = avgFin > avgIni ? 'al alza' : 'a la baja';
+    const añoIni  = fraudePorMes[0].año_mes.split('-')[0];
+    const añoFin  = fraudePorMes[fraudePorMes.length - 1].año_mes.split('-')[0];
+    const txtDir  = añoIni !== añoFin
+      ? `La tendencia en ${añoFin} es ${dir} respecto a ${añoIni}.`
+      : `La tendencia general es ${dir}.`;
+    return `Pico más alto: ${fmtMesLargo(pico.año_mes)} con ${fmt(pico.total_fraudes)} alertas. ${txtDir}`;
+  })();
+
+  // ── Conclusión: fraude por categoría ────────────────────────
+  const catSlice   = fraudePorCategoria.slice(0, 8);
+  const catMax     = catSlice.length ? catSlice.reduce((m, d) => d.total_fraudes > m.total_fraudes ? d : m) : null;
+  const catMin     = catSlice.length ? catSlice.reduce((m, d) => d.total_fraudes < m.total_fraudes ? d : m) : null;
+  const catMaxIdx  = catMax ? catSlice.findIndex(d => d.categoria === catMax.categoria) : -1;
+  const conclusionCat = catMax && catMin && catMax.categoria !== catMin.categoria
+    ? `${catMax.categoria} es la categoría más vulnerable con ${fmt(catMax.total_fraudes)} alertas. ${catMin.categoria} es la de menor incidencia con ${fmt(catMin.total_fraudes)} alertas.`
+    : null;
+
+  // ── Conclusión: préstamos por tipo ──────────────────────────
+  const prestMax = prestamos.length ? prestamos.reduce((m: PrestamosPorTipo, d: PrestamosPorTipo) => d.total > m.total ? d : m) : null;
+  const prestMin = prestamos.length ? prestamos.reduce((m: PrestamosPorTipo, d: PrestamosPorTipo) => d.total < m.total ? d : m) : null;
+  const conclusionPrest = prestMax && prestMin && prestMax.tipo !== prestMin.tipo
+    ? `${prestMax.tipo} es el tipo con mayor demanda con ${fmt(prestMax.total)} préstamos. ${prestMin.tipo} tiene la menor con ${fmt(prestMin.total)}.`
+    : null;
+
+  // ── Conclusión: saldo por tipo de cuenta ────────────────────
+  const saldoMax = saldoCuentas.length ? saldoCuentas.reduce((m: SaldoPorTipoCuenta, d: SaldoPorTipoCuenta) => Number(d.saldo_total) > Number(m.saldo_total) ? d : m) : null;
+  const saldoMin = saldoCuentas.length ? saldoCuentas.reduce((m: SaldoPorTipoCuenta, d: SaldoPorTipoCuenta) => Number(d.saldo_total) < Number(m.saldo_total) ? d : m) : null;
+
+  // ── Conclusión: score crediticio ─────────────────────────────
+  const scoreMax = scores.length ? scores.reduce((m: ScoreCrediticio, d: ScoreCrediticio) => d.total > m.total ? d : m) : null;
+  const scoreMin = scores.length ? scores.reduce((m: ScoreCrediticio, d: ScoreCrediticio) => d.total < m.total ? d : m) : null;
+  const conclusionScore = scoreMax && scoreMin && scoreMax.rango !== scoreMin.rango
+    ? `El rango ${scoreMax.rango} concentra el mayor número de clientes con ${fmt(scoreMax.total)}. El rango ${scoreMin.rango} tiene la menor cantidad con ${fmt(scoreMin.total)}.`
+    : null;
+
   // ── Descarga PDF ─────────────────────────────────────────────
   const handleDownloadPDF = async () => {
     try {
@@ -1130,27 +1178,31 @@ export default function Dashboard() {
                     color="#ba1a1a" valueFormatter={fmt}
                   />
                 : <SkeletonCard height={160} lines={2} />}
-            </View>
-
-            <View style={s.kpiDetailCard}>
-              <Text style={s.cardTitle}>Tendencia de transacciones (12 meses)</Text>
-              <Text style={s.cardSubtitle}>Volumen total · Toca para ver detalle</Text>
-              {loadTend
-                ? <SkeletonCard height={200} lines={4} />
-                : <InteractiveLineChart
-                    data={tendencia.map((t: TendenciaMes) => ({ label: t.mes.substring(5), value: t.total }))}
-                    color="#004481" valueFormatter={fmt}
-                  />}
+              {conclusionFraudes && (
+                <View style={s.conclusionBox}>
+                  <Ionicons name="analytics-outline" size={14} color="#004481" style={{ marginRight: 6, flexShrink: 0 }} />
+                  <Text style={s.conclusionTxt}>{conclusionFraudes}</Text>
+                </View>
+              )}
             </View>
 
             <View style={s.kpiDetailCard}>
               <Text style={s.cardTitle}>Fraude por categoría</Text>
-              <Text style={s.cardSubtitle}>Toca una barra para ver el detalle</Text>
-              {fraudePorCategoria.length > 0
-                ? <AnimatedBarChart
-                    data={fraudePorCategoria.slice(0, 8).map(d => ({ label: d.categoria, value: d.total_fraudes }))}
-                    colorFn={() => '#ba1a1a'} valueFormatter={fmt}
-                  />
+              <Text style={s.cardSubtitle}>Barra roja = categoría más afectada · Toca para ver detalle</Text>
+              {catSlice.length > 0
+                ? <>
+                    <AnimatedBarChart
+                      data={catSlice.map(d => ({ label: d.categoria, value: d.total_fraudes }))}
+                      colorFn={(i) => i === catMaxIdx ? '#ba1a1a' : '#1973B8'}
+                      valueFormatter={fmt}
+                    />
+                    {conclusionCat && (
+                      <View style={s.conclusionBox}>
+                        <Ionicons name="analytics-outline" size={14} color="#004481" style={{ marginRight: 6, flexShrink: 0 }} />
+                        <Text style={s.conclusionTxt}>{conclusionCat}</Text>
+                      </View>
+                    )}
+                  </>
                 : <SkeletonCard lines={5} />}
             </View>
 
@@ -1176,10 +1228,18 @@ export default function Dashboard() {
               <Text style={s.cardSubtitle}>Toca para ver detalle</Text>
               {loadPrest
                 ? <SkeletonCard lines={4} />
-                : <AnimatedBarChart
-                    data={prestamos.map((p: PrestamosPorTipo) => ({ label: p.tipo, value: p.total }))}
-                    colorFn={(i) => PALETTE[i % PALETTE.length]} valueFormatter={fmt}
-                  />}
+                : <>
+                    <AnimatedBarChart
+                      data={prestamos.map((p: PrestamosPorTipo) => ({ label: p.tipo, value: p.total }))}
+                      colorFn={(i) => PALETTE[i % PALETTE.length]} valueFormatter={fmt}
+                    />
+                    {conclusionPrest && (
+                      <View style={s.conclusionBox}>
+                        <Ionicons name="analytics-outline" size={14} color="#004481" style={{ marginRight: 6, flexShrink: 0 }} />
+                        <Text style={s.conclusionTxt}>{conclusionPrest}</Text>
+                      </View>
+                    )}
+                  </>}
             </View>
 
             <Text style={s.sectionHeader}>CUENTAS</Text>
@@ -1187,21 +1247,39 @@ export default function Dashboard() {
               <Text style={s.cardTitle}>Saldo por tipo de cuenta</Text>
               {loadSaldo
                 ? <SkeletonCard lines={3} />
-                : <AnimatedBarChart
-                    data={saldoCuentas.map((c: SaldoPorTipoCuenta) => ({ label: c.tipo, value: Number(c.saldo_total) }))}
-                    colorFn={(i) => PALETTE[i % PALETTE.length]}
-                    valueFormatter={(v) => hideAmounts ? '•••••' : fmtMXN(v)}
-                  />}
+                : <>
+                    <AnimatedBarChart
+                      data={saldoCuentas.map((c: SaldoPorTipoCuenta) => ({ label: c.tipo, value: Number(c.saldo_total) }))}
+                      colorFn={(i) => PALETTE[i % PALETTE.length]}
+                      valueFormatter={(v) => hideAmounts ? '•••••' : fmtMXN(v)}
+                    />
+                    {saldoMax && saldoMin && saldoMax.tipo !== saldoMin.tipo && (
+                      <View style={s.conclusionBox}>
+                        <Ionicons name="analytics-outline" size={14} color="#004481" style={{ marginRight: 6, flexShrink: 0 }} />
+                        <Text style={s.conclusionTxt}>
+                          {`${saldoMax.tipo} concentra el mayor saldo${hideAmounts ? '' : ` con ${fmtMXN(Number(saldoMax.saldo_total))}`}. ${saldoMin.tipo} tiene el menor${hideAmounts ? '' : ` con ${fmtMXN(Number(saldoMin.saldo_total))}`}.`}
+                        </Text>
+                      </View>
+                    )}
+                  </>}
             </View>
 
             <View style={s.kpiDetailCard}>
               <Text style={s.cardTitle}>Distribución de Score Crediticio</Text>
               {loadScore
                 ? <SkeletonCard lines={4} />
-                : <AnimatedBarChart
-                    data={scores.map((sc: ScoreCrediticio) => ({ label: sc.rango, value: sc.total }))}
-                    colorFn={(i) => ['#ba1a1a','#fbbd08','#1973B8','#00a278'][i % 4]} valueFormatter={fmt}
-                  />}
+                : <>
+                    <AnimatedBarChart
+                      data={scores.map((sc: ScoreCrediticio) => ({ label: sc.rango, value: sc.total }))}
+                      colorFn={(i) => ['#ba1a1a','#fbbd08','#1973B8','#00a278'][i % 4]} valueFormatter={fmt}
+                    />
+                    {conclusionScore && (
+                      <View style={s.conclusionBox}>
+                        <Ionicons name="analytics-outline" size={14} color="#004481" style={{ marginRight: 6, flexShrink: 0 }} />
+                        <Text style={s.conclusionTxt}>{conclusionScore}</Text>
+                      </View>
+                    )}
+                  </>}
             </View>
 
             <Text style={s.sectionHeader}>COMISIONES</Text>
@@ -1504,6 +1582,10 @@ const s = StyleSheet.create({
                       marginBottom: 14, borderWidth: 1, borderColor: 'rgba(194,198,210,0.4)', elevation: 2 },
   cardTitle:        { fontSize: 15, fontWeight: '700', color: '#1a1c1c', marginBottom: 2 },
   cardSubtitle:     { fontSize: 11, color: '#737781', marginBottom: 8 },
+  conclusionBox:    { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#f0f4ff',
+                      borderRadius: 10, borderLeftWidth: 3, borderLeftColor: '#004481',
+                      padding: 10, marginTop: 14 },
+  conclusionTxt:    { fontSize: 12, color: '#1a1c1c', flex: 1, lineHeight: 17 },
   sideBySideRow:    { flexDirection: 'row', justifyContent: 'space-between', gap: 10, marginBottom: 14 },
   halfCard:         { flex: 1, backgroundColor: '#fff', borderRadius: 16, padding: 14,
                       borderWidth: 1, borderColor: 'rgba(194,198,210,0.4)', elevation: 2 },
