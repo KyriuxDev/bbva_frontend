@@ -31,9 +31,9 @@ export interface FraudePorCanal {
 
 // ── /etl/fraude-por-categoria ────────────────────────────────
 export interface FraudePorCategoria {
-  categoria:     string;
-  total_fraudes: number;
-  monto_total:   number;
+  categoria:      string;
+  total_fraudes:  number;
+  monto_total:    number;
   monto_promedio: number;
 }
 
@@ -61,4 +61,50 @@ export interface DebilidadesResponse {
     porcentajeMetasFallidas:     number;
   };
   soluciones: Solucion[];
+}
+
+// ── /kpis/clientes-por-segmento ──────────────────────────────
+export interface ClientesPorSegmento {
+  segmento: string;
+  total:    number;
+}
+
+// ── /kpis/clientes-por-genero ────────────────────────────────
+export interface ClientesPorGenero {
+  genero: string;
+  total:  number;
+}
+
+// ── /kpis/prestamos-por-tipo ─────────────────────────────────
+export interface PrestamosPorTipo {
+  tipo:        string;
+  total:       number;
+  saldo_total: number;
+}
+
+// ── /kpis/saldo-por-tipo-cuenta ──────────────────────────────
+export interface SaldoPorTipoCuenta {
+  tipo:          string;
+  total_cuentas: number;
+  saldo_total:   number;
+}
+
+// ── /kpis/score-crediticio ───────────────────────────────────
+export interface ScoreCrediticio {
+  rango: string;
+  total: number;
+}
+
+// ── /kpis/tendencia ──────────────────────────────────────────
+export interface TendenciaMes {
+  mes:         string;
+  total:       number;
+  monto_total: number;
+}
+
+// ── /kpis/cobros-excedidos ───────────────────────────────────
+export interface CobrosExcedidos {
+  tipo:             string;
+  total:            number;
+  diferencia_total: number;
 }
