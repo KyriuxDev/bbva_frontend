@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView,
   StyleSheet, Dimensions, StatusBar, Switch,
-  ActivityIndicator, Alert, Animated, Easing, PanResponder,
+  ActivityIndicator, Alert, Animated, Easing, PanResponder, Modal,
 } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -18,6 +18,7 @@ import type {
   FraudePorMes, Solucion,
   PrestamosPorTipo, SaldoPorTipoCuenta,
   ScoreCrediticio, TendenciaMes, CobrosExcedidos,
+  FraudeGeo, FraudeComercio,
 } from '@/src/features/dashboard/dashboard.types';
 
 const { width } = Dimensions.get('window');
@@ -470,6 +471,401 @@ function DebCard({ sol, idx, expandedId, setExpandedId }: {
 }
 
 // ─────────────────────────────────────────────────────────────
+//  MAPA SVG DE FRAUDE GEOGRAFICO
+// ─────────────────────────────────────────────────────────────
+const MEX_LAT_MIN = 14.5,   MEX_LAT_MAX = 32.7;
+const MEX_LNG_MIN = -118.4, MEX_LNG_MAX = -86.7;
+const MAP_SVG_W = 320,      MAP_SVG_H = 200;
+
+function lngToX(lng: number) {
+  return ((lng - MEX_LNG_MIN) / (MEX_LNG_MAX - MEX_LNG_MIN)) * MAP_SVG_W;
+}
+function latToY(lat: number) {
+  return ((MEX_LAT_MAX - lat) / (MEX_LAT_MAX - MEX_LAT_MIN)) * MAP_SVG_H;
+}
+
+// Contorno simplificado de México para SVG — [lng, lat]
+const MEX_MAINLAND_COORDS: [number, number][] = [
+  [-114.8,32.5],[-111.0,31.3],[-108.5,31.5],[-106.5,31.7],
+  [-104.5,29.6],[-100.7,29.1],[-99.5,27.5],[-98.3,26.1],[-97.5,25.9],
+  [-97.8,22.3],[-96.1,19.2],[-94.5,18.2],
+  [-90.6,19.8],[-87.0,21.5],[-86.8,21.0],[-87.6,18.5],[-89.1,16.0],
+  [-92.2,14.9],
+  [-97.0,15.9],[-99.9,17.0],[-102.2,18.0],[-104.3,19.1],
+  [-105.2,20.6],[-106.4,23.2],
+  [-109.1,25.6],[-110.9,27.9],[-113.5,31.3],[-114.8,32.5],
+];
+const MEX_BAJA_COORDS: [number, number][] = [
+  [-117.0,32.5],[-116.6,31.9],[-115.7,30.0],[-115.0,28.0],
+  [-114.5,26.8],[-112.0,24.5],[-109.9,22.9],
+  [-110.3,24.1],[-111.3,26.0],[-112.3,27.3],
+  [-113.3,28.0],[-113.5,29.0],[-114.9,31.0],[-115.5,32.7],
+];
+function coordsToPath(coords: [number, number][]): string {
+  return coords.map(([lng, lat], i) =>
+    `${i === 0 ? 'M' : 'L'}${lngToX(lng).toFixed(1)},${latToY(lat).toFixed(1)}`
+  ).join(' ') + ' Z';
+}
+
+// Lookup de zonas geográficas de México para el modal
+const GEO_ZONAS = [
+  { n: 'CDMX y area metropolitana', lat:19.4, lng:-99.1 },
+  { n: 'Guadalajara, Jalisco',       lat:20.7, lng:-103.4 },
+  { n: 'Monterrey, Nuevo Leon',      lat:25.7, lng:-100.3 },
+  { n: 'Tijuana, Baja California',   lat:32.5, lng:-117.0 },
+  { n: 'Merida, Yucatan',            lat:21.0, lng:-89.6  },
+  { n: 'Puebla, Puebla',             lat:19.0, lng:-98.2  },
+  { n: 'Cancun, Quintana Roo',       lat:21.2, lng:-86.9  },
+  { n: 'Leon, Guanajuato',           lat:21.1, lng:-101.7 },
+  { n: 'Toluca, Edo. de Mexico',     lat:19.3, lng:-99.7  },
+  { n: 'Torreon, Coahuila',          lat:25.5, lng:-103.5 },
+  { n: 'San Luis Potosi',            lat:22.2, lng:-101.0 },
+  { n: 'Queretaro',                  lat:20.6, lng:-100.4 },
+  { n: 'Chihuahua, Chihuahua',       lat:28.6, lng:-106.1 },
+  { n: 'Hermosillo, Sonora',         lat:29.1, lng:-111.0 },
+  { n: 'Saltillo, Coahuila',         lat:25.4, lng:-101.0 },
+  { n: 'Mexicali, Baja California',  lat:32.7, lng:-115.5 },
+  { n: 'Culiacan, Sinaloa',          lat:24.8, lng:-107.4 },
+  { n: 'Acapulco, Guerrero',         lat:16.9, lng:-99.9  },
+  { n: 'Veracruz, Veracruz',         lat:19.2, lng:-96.1  },
+  { n: 'Aguascalientes',             lat:21.9, lng:-102.3 },
+  { n: 'Morelia, Michoacan',         lat:19.7, lng:-101.2 },
+  { n: 'Tampico, Tamaulipas',        lat:22.3, lng:-97.9  },
+  { n: 'Mazatlan, Sinaloa',          lat:23.2, lng:-106.4 },
+  { n: 'Durango, Durango',           lat:24.0, lng:-104.7 },
+  { n: 'Oaxaca, Oaxaca',             lat:17.1, lng:-96.7  },
+  { n: 'Tuxtla Gutierrez, Chiapas',  lat:16.8, lng:-93.1  },
+  { n: 'Ciudad Juarez, Chihuahua',   lat:31.7, lng:-106.5 },
+  { n: 'Nuevo Laredo, Tamaulipas',   lat:27.5, lng:-99.5  },
+  { n: 'Matamoros, Tamaulipas',      lat:25.9, lng:-97.5  },
+  { n: 'Reynosa, Tamaulipas',        lat:26.1, lng:-98.3  },
+  { n: 'Ensenada, Baja California',  lat:31.9, lng:-116.6 },
+  { n: 'Villahermosa, Tabasco',      lat:18.0, lng:-92.9  },
+  { n: 'Campeche, Campeche',         lat:19.9, lng:-90.5  },
+  { n: 'Tepic, Nayarit',             lat:21.5, lng:-104.9 },
+  { n: 'Zacatecas, Zacatecas',       lat:22.8, lng:-102.6 },
+];
+function getNombreZona(lat: number, lng: number): string {
+  let minD = Infinity, nearest = 'Mexico';
+  for (const z of GEO_ZONAS) {
+    const d = Math.hypot(z.lat - lat, z.lng - lng);
+    if (d < minD) { minD = d; nearest = z.n; }
+  }
+  return minD < 2.5 ? `Cerca de ${nearest}` : 'Zona rural de Mexico';
+}
+
+// Recomendaciones por canal y categoria
+const REC_CANAL: Record<string, string[]> = {
+  App:        ['Activa autenticacion biometrica en la app', 'Evita usar WiFi publico para transacciones', 'Revisa permisos de la app regularmente'],
+  Cajero:     ['Cubre el teclado al ingresar tu NIP', 'Prefiere cajeros dentro de sucursales bancarias', 'Revisa que no haya dispositivos extraños en el lector'],
+  POS:        ['Nunca pierdas de vista tu tarjeta al pagar', 'Verifica el monto antes de confirmar', 'Activa alertas de cargo en tiempo real'],
+  Web:        ['Verifica que la URL empiece con https://', 'Usa tarjetas virtuales para compras en linea', 'No guardes datos de tarjeta en sitios desconocidos'],
+  Ventanilla: ['Solicita identificacion al ejecutivo', 'Conserva todos tus comprobantes de operacion', 'No proporciones datos fuera de ventanilla oficial'],
+};
+
+function getRecomendaciones(canal: string, _categoria: string): string[] {
+  return REC_CANAL[canal] ?? [
+    'Monitorea tu estado de cuenta con frecuencia',
+    'Reporta cargos no reconocidos de inmediato al banco',
+    'Activa notificaciones push para cada transaccion',
+  ];
+}
+
+// Fusiona puntos que caen a menos de minPx unidades SVG entre sí
+function clusterGeoData(data: FraudeGeo[], minPx: number): FraudeGeo[] {
+  const out: { x: number; y: number; d: FraudeGeo }[] = [];
+  for (const item of [...data].sort((a, b) => b.total_fraudes - a.total_fraudes)) {
+    const x = lngToX(item.lng);
+    const y = latToY(item.lat);
+    const hit = out.find(c => Math.hypot(c.x - x, c.y - y) < minPx);
+    if (hit) {
+      hit.d = {
+        ...hit.d,
+        total_fraudes: hit.d.total_fraudes + item.total_fraudes,
+        monto_total:   hit.d.monto_total   + item.monto_total,
+      };
+    } else {
+      out.push({ x, y, d: { ...item } });
+    }
+  }
+  return out.map(c => c.d);
+}
+
+const CIUDADES_REF = [
+  { nombre: 'CDMX',       lat: 19.43, lng: -99.13  },
+  { nombre: 'GDL',        lat: 20.67, lng: -103.35 },
+  { nombre: 'MTY',        lat: 25.67, lng: -100.32 },
+  { nombre: 'TIJ',        lat: 32.53, lng: -117.0  },
+  { nombre: 'MER',        lat: 20.97, lng: -89.62  },
+];
+
+function FraudeMapView({ data }: { data: FraudeGeo[] }) {
+  const [selected, setSelected] = useState<FraudeGeo | null>(null);
+  const clusters    = clusterGeoData(data, 22);
+  const maxFraudes  = Math.max(...clusters.map(d => d.total_fraudes), 1);
+  const chartW      = width - 64;
+  const chartH      = (chartW / MAP_SVG_W) * MAP_SVG_H;
+  const mainlandD   = coordsToPath(MEX_MAINLAND_COORDS);
+  const bajaD       = coordsToPath(MEX_BAJA_COORDS);
+
+  // Detecta toque en SVG: convierte coordenadas de pantalla a espacio viewBox
+  const handleMapPress = (evt: any) => {
+    const { locationX, locationY } = evt.nativeEvent;
+    const svgX = (locationX / chartW)  * MAP_SVG_W;
+    const svgY = (locationY / chartH) * MAP_SVG_H;
+    const hit = clusters.find(cluster => {
+      const ratio = cluster.total_fraudes / maxFraudes;
+      const r = 6 + ratio * 18;
+      return Math.hypot(lngToX(cluster.lng) - svgX, latToY(cluster.lat) - svgY) <= r + 4;
+    });
+    if (hit) setSelected(hit);
+  };
+
+  return (
+    <View>
+      <TouchableOpacity
+        activeOpacity={1}
+        onPress={handleMapPress}
+        style={{ backgroundColor: '#dbeafe', borderRadius: 14, overflow: 'hidden' }}
+      >
+        <Svg width={chartW} height={chartH} viewBox={`0 0 ${MAP_SVG_W} ${MAP_SVG_H}`}>
+          {/* Contorno de Mexico */}
+          <Path d={mainlandD} fill="#dde8d0" stroke="#6b7280" strokeWidth="0.8" />
+          <Path d={bajaD}     fill="#dde8d0" stroke="#6b7280" strokeWidth="0.8" />
+          {/* Cuadricula sutil */}
+          {[0.25, 0.5, 0.75].map((f, i) => (
+            <React.Fragment key={i}>
+              <Line x1={MAP_SVG_W * f} y1={0} x2={MAP_SVG_W * f} y2={MAP_SVG_H}
+                stroke="#93c5fd" strokeWidth="0.6" opacity="0.6" />
+              <Line x1={0} y1={MAP_SVG_H * f} x2={MAP_SVG_W} y2={MAP_SVG_H * f}
+                stroke="#93c5fd" strokeWidth="0.6" opacity="0.6" />
+            </React.Fragment>
+          ))}
+
+          {/* Clusters — sin onPress, el toque lo maneja TouchableOpacity */}
+          {clusters.map((cluster, i) => {
+            const ratio = cluster.total_fraudes / maxFraudes;
+            const cx    = lngToX(cluster.lng);
+            const cy    = latToY(cluster.lat);
+            const r     = 6 + ratio * 18;
+            const alpha = (0.55 + ratio * 0.45).toFixed(2);
+            return (
+              <Circle
+                key={i}
+                cx={cx} cy={cy} r={r}
+                fill={`rgba(186,26,26,${alpha})`}
+                stroke="#fff" strokeWidth="2"
+              />
+            );
+          })}
+
+          {/* Ciudades de referencia — encima de los clusters */}
+          {CIUDADES_REF.map((city, i) => {
+            const cx = lngToX(city.lng);
+            const cy = latToY(city.lat);
+            return (
+              <React.Fragment key={i}>
+                <Circle cx={cx} cy={cy} r={4} fill="#1d4ed8" stroke="#fff" strokeWidth="1.5" />
+                <SvgText x={cx} y={cy - 7}
+                  fontSize="7.5" fill="#1e3a8a" textAnchor="middle" fontWeight="700">
+                  {city.nombre}
+                </SvgText>
+              </React.Fragment>
+            );
+          })}
+        </Svg>
+      </TouchableOpacity>
+
+      {/* Leyenda */}
+      <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 16, marginTop: 8 }}>
+        {[
+          { size: 8,  label: 'Pocos',  opacity: 0.55 },
+          { size: 14, label: 'Medios', opacity: 0.75 },
+          { size: 20, label: 'Muchos', opacity: 1    },
+        ].map((leg, i) => (
+          <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <View style={{ width: leg.size, height: leg.size, borderRadius: leg.size / 2,
+              backgroundColor: '#ba1a1a', opacity: leg.opacity }} />
+            <Text style={{ fontSize: 10, color: '#737781' }}>{leg.label}</Text>
+          </View>
+        ))}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#1d4ed8' }} />
+          <Text style={{ fontSize: 10, color: '#737781' }}>Ciudad ref.</Text>
+        </View>
+      </View>
+      <Text style={{ fontSize: 10, color: '#aaa', textAlign: 'center', marginTop: 4 }}>
+        Toca un cluster rojo para ver el detalle
+      </Text>
+
+      {/* Bottom sheet modal con estadisticas + recomendaciones */}
+      <Modal
+        visible={selected !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSelected(null)}
+      >
+        <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+          <TouchableOpacity
+            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' }}
+            activeOpacity={1}
+            onPress={() => setSelected(null)}
+          />
+          {selected && (
+            <ScrollView
+              style={s.geoSheet}
+              contentContainerStyle={{ paddingBottom: 32 }}
+              bounces={false}
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={s.geoSheetHandle} />
+
+              {/* Cabecera */}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <View style={{ width: 38, height: 38, borderRadius: 19,
+                    backgroundColor: '#fbebeb', alignItems: 'center', justifyContent: 'center' }}>
+                    <Ionicons name="location-outline" size={20} color="#ba1a1a" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.geoSheetTitle}>Cluster de Fraude</Text>
+                    <Text style={{ fontSize: 11, color: '#737781' }} numberOfLines={1}>
+                      {getNombreZona(selected.lat, selected.lng)}
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity onPress={() => setSelected(null)}>
+                  <Ionicons name="close-circle-outline" size={26} color="#737781" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Estadisticas */}
+              {[
+                { icon: 'alert-circle-outline',  label: 'Fraudes detectados', val: fmt(selected.total_fraudes),     color: '#ba1a1a' },
+                { icon: 'cash-outline',           label: 'Monto total',        val: fmtMXN(selected.monto_total),    color: '#004481' },
+                { icon: 'analytics-outline',      label: 'Monto promedio',     val: fmtMXN(selected.monto_promedio), color: '#1973B8' },
+                { icon: 'pricetag-outline',       label: 'Categoria principal', val: selected.categoria_top,         color: '#00a278' },
+                { icon: 'phone-portrait-outline', label: 'Canal principal',     val: selected.canal_top,             color: '#7c3aed' },
+              ].map((row, i) => (
+                <View key={i} style={s.geoSheetRow}>
+                  <View style={[s.geoSheetIcon, { backgroundColor: row.color + '18' }]}>
+                    <Ionicons name={row.icon as any} size={16} color={row.color} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.geoSheetRowLabel}>{row.label}</Text>
+                    <Text style={s.geoSheetRowVal}>{row.val}</Text>
+                  </View>
+                </View>
+              ))}
+
+              {/* Recomendaciones de prevencion */}
+              <View style={{ marginTop: 16, backgroundColor: '#f0f9f4', borderRadius: 14,
+                padding: 14, borderLeftWidth: 3, borderLeftColor: '#00a278' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                  <Ionicons name="shield-checkmark-outline" size={16} color="#00a278" />
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: '#00a278' }}>
+                    Como evitar este fraude
+                  </Text>
+                </View>
+                {getRecomendaciones(selected.canal_top, selected.categoria_top).map((rec, i) => (
+                  <View key={i} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+                    <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#00a278',
+                      alignItems: 'center', justifyContent: 'center', marginTop: 1, flexShrink: 0 }}>
+                      <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>{i + 1}</Text>
+                    </View>
+                    <Text style={{ fontSize: 12, color: '#374151', lineHeight: 18, flex: 1 }}>{rec}</Text>
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+          )}
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+//  TARJETA DE COMERCIO CON ACORDEN
+// ─────────────────────────────────────────────────────────────
+function ComercioCard({ item, idx, expandedId, setExpandedId }: {
+  item: FraudeComercio;
+  idx: number;
+  expandedId: number | null;
+  setExpandedId: (v: number | null) => void;
+}) {
+  const isExpanded = expandedId === idx;
+  const fecha = item.ultima_alerta
+    ? new Date(item.ultima_alerta).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
+    : 'Sin alerta';
+
+  return (
+    <View style={s.comercioCard}>
+      {/* Cabecera */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+        <View style={s.comercioIconBox}>
+          <Ionicons name="storefront-outline" size={22} color="#004481" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={s.comercioName} numberOfLines={1}>{item.comercio}</Text>
+          <View style={[s.badge, { backgroundColor: '#1973B8', alignSelf: 'flex-start' }]}>
+            <Text style={s.badgeText}>{item.categoria.toUpperCase()}</Text>
+          </View>
+        </View>
+        <View style={{ alignItems: 'flex-end' }}>
+          <Text style={s.comercioFraudes}>{fmt(item.total_fraudes)}</Text>
+          <Text style={{ fontSize: 9, color: '#737781', fontWeight: '600' }}>fraudes</Text>
+        </View>
+      </View>
+
+      {/* Stats visibles */}
+      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
+        <View style={s.comercioStatBox}>
+          <Text style={s.comercioStatLabel}>Monto total</Text>
+          <Text style={s.comercioStatVal}>{fmtMXN(item.monto_total)}</Text>
+        </View>
+        <View style={s.comercioStatBox}>
+          <Text style={s.comercioStatLabel}>Clientes afect.</Text>
+          <Text style={s.comercioStatVal}>{fmt(item.clientes_afectados)}</Text>
+        </View>
+      </View>
+
+      {/* Boton acorden */}
+      <TouchableOpacity
+        style={s.accordionBtn}
+        onPress={() => setExpandedId(isExpanded ? null : idx)}
+      >
+        <Text style={s.accordionBtnText}>
+          {isExpanded ? 'Ocultar detalle' : 'Ver detalle completo'}
+        </Text>
+        <Ionicons
+          name={isExpanded ? 'chevron-up' : 'chevron-down'}
+          size={16} color="#004481"
+        />
+      </TouchableOpacity>
+
+      {/* Contenido expandido */}
+      {isExpanded && (
+        <View style={s.accordionContent}>
+          {[
+            { icon: 'analytics-outline', label: 'Monto promedio',     val: fmtMXN(item.monto_promedio),  color: '#1973B8' },
+            { icon: 'people-outline',    label: 'Clientes afectados', val: fmt(item.clientes_afectados), color: '#7c3aed' },
+            { icon: 'time-outline',      label: 'Ultima alerta',      val: fecha,                        color: '#ba1a1a' },
+          ].map((row, i) => (
+            <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 10,
+              paddingVertical: 6, borderBottomWidth: i < 2 ? 1 : 0, borderBottomColor: '#f0f2f5' }}>
+              <Ionicons name={row.icon as any} size={14} color={row.color} />
+              <Text style={{ fontSize: 12, color: '#5d5f5f', flex: 1 }}>{row.label}</Text>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: '#1a1c1c' }}>{row.val}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 //  PANTALLA PRINCIPAL
 // ─────────────────────────────────────────────────────────────
 export default function Dashboard() {
@@ -486,7 +882,8 @@ export default function Dashboard() {
   const [incDeb, setIncDeb]     = useState(true);
   const [incRec, setIncRec]     = useState(true);
   const [incGraph, setIncGraph] = useState(true);
-  const [expandedDebId, setExpandedDebId] = useState<number | null>(null);
+  const [expandedDebId, setExpandedDebId]         = useState<number | null>(null);
+  const [expandedComercioId, setExpandedComercioId] = useState<number | null>(null);
 
   // ── Queries con caché de 5 min ───────────────────────────────
   const { data: kpisResumen }     = useQuery({ queryKey: ['kpis-resumen'],   queryFn: dashboardService.getKpisResumen,    staleTime: STALE });
@@ -504,6 +901,8 @@ export default function Dashboard() {
   const { data: saldoCuentas = [], isLoading: loadSaldo} = useQuery({ queryKey: ['kpis-saldo'],     queryFn: dashboardService.getSaldoPorTipoCuenta,  staleTime: STALE });
   const { data: scores       = [], isLoading: loadScore} = useQuery({ queryKey: ['kpis-scores'],    queryFn: dashboardService.getScoreCrediticio,     staleTime: STALE });
   const { data: cobrosExc    = [], isLoading: loadCob  } = useQuery({ queryKey: ['kpis-cobros'],    queryFn: dashboardService.getCobrosExcedidos,     staleTime: STALE });
+  const { data: fraudeGeo      = [], isLoading: loadGeo } = useQuery({ queryKey: ['fraude-geo'],      queryFn: dashboardService.getFraudeGeografico,  staleTime: STALE });
+  const { data: fraudeComercio = [], isLoading: loadCom } = useQuery({ queryKey: ['fraude-comercio'], queryFn: dashboardService.getFraudePorComercio,  staleTime: STALE });
 
   // ── Datos derivados ──────────────────────────────────────────
   const donutFraude: Segment[] = fraudePorCanal.map(d => ({
@@ -823,6 +1222,43 @@ export default function Dashboard() {
                 </View>
               ) : <SkeletonCard lines={5} />}
             </View>
+
+            <Text style={s.sectionHeader}>GEOGRAFIA</Text>
+            <View style={s.kpiDetailCard}>
+              <Text style={s.cardTitle}>Mapa de fraude por zona</Text>
+              <Text style={s.cardSubtitle}>Tamano proporcional al numero de fraudes · Toca para ver detalle</Text>
+              {loadGeo
+                ? <SkeletonCard height={220} lines={3} />
+                : fraudeGeo.length > 0
+                  ? <FraudeMapView data={fraudeGeo} />
+                  : (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginVertical: 16 }}>
+                      <Ionicons name="map-outline" size={16} color="#aaa" />
+                      <Text style={{ color: '#aaa', fontWeight: '600' }}>Sin datos geograficos</Text>
+                    </View>
+                  )}
+            </View>
+
+            <Text style={s.sectionHeader}>COMERCIOS</Text>
+            {loadCom
+              ? <>{[1, 2, 3].map(i => <SkeletonCard key={i} height={130} lines={3} />)}</>
+              : fraudeComercio.length > 0
+                ? fraudeComercio.map((item, idx) => (
+                    <ComercioCard
+                      key={idx}
+                      item={item}
+                      idx={idx}
+                      expandedId={expandedComercioId}
+                      setExpandedId={setExpandedComercioId}
+                    />
+                  ))
+                : (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginVertical: 16 }}>
+                    <Ionicons name="storefront-outline" size={16} color="#aaa" />
+                    <Text style={{ color: '#aaa', fontWeight: '600' }}>Sin datos de comercios</Text>
+                  </View>
+                )}
+
             <View style={{ height: 40 }} />
           </ScrollView>
         )}
@@ -1084,4 +1520,26 @@ const s = StyleSheet.create({
   repSubText:       { fontSize: 11, color: '#737781', marginTop: 2 },
   repDownloadBtn:   { width: 36, height: 36, borderRadius: 18, backgroundColor: '#e8effa',
                       alignItems: 'center', justifyContent: 'center' },
+  // Mapa geografico - bottom sheet
+  geoSheet:          { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24,
+                       padding: 24, paddingBottom: 40 },
+  geoSheetHandle:    { width: 40, height: 4, backgroundColor: '#d1d5db', borderRadius: 2,
+                       alignSelf: 'center', marginBottom: 20 },
+  geoSheetTitle:     { fontSize: 17, fontWeight: '800', color: '#1a1c1c' },
+  geoSheetRow:       { flexDirection: 'row', alignItems: 'center', gap: 12,
+                       paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f0f2f5' },
+  geoSheetIcon:      { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  geoSheetRowLabel:  { fontSize: 11, color: '#737781', fontWeight: '600' },
+  geoSheetRowVal:    { fontSize: 14, fontWeight: '700', color: '#1a1c1c' },
+  geoSheetCoords:    { fontSize: 10, color: '#aaa', marginTop: 14, textAlign: 'center' },
+  // Tarjetas de comercio
+  comercioCard:      { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 12,
+                       borderWidth: 1, borderColor: 'rgba(194,198,210,0.4)', elevation: 2 },
+  comercioIconBox:   { width: 44, height: 44, borderRadius: 22, backgroundColor: '#e8effa',
+                       alignItems: 'center', justifyContent: 'center' },
+  comercioName:      { fontSize: 14, fontWeight: '700', color: '#1a1c1c', marginBottom: 4 },
+  comercioFraudes:   { fontSize: 20, fontWeight: '800', color: '#ba1a1a' },
+  comercioStatBox:   { flex: 1, backgroundColor: '#f4f6fa', borderRadius: 10, padding: 10 },
+  comercioStatLabel: { fontSize: 10, color: '#737781', fontWeight: '600', marginBottom: 2 },
+  comercioStatVal:   { fontSize: 13, fontWeight: '700', color: '#1a1c1c' },
 });

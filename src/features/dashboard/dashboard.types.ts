@@ -108,3 +108,25 @@ export interface CobrosExcedidos {
   total:            number;
   diferencia_total: number;
 }
+
+// ── /etl/fraude-geografico ────────────────────────────────────
+export interface FraudeGeo {
+  lat:            number;
+  lng:            number;
+  total_fraudes:  number;
+  monto_total:    number;
+  monto_promedio: number;
+  categoria_top:  string;
+  canal_top:      string;
+}
+
+// ── /etl/fraude-por-comercio ─────────────────────────────────
+export interface FraudeComercio {
+  comercio:           string;
+  categoria:          string;
+  total_fraudes:      number;
+  monto_total:        number;
+  monto_promedio:     number;
+  clientes_afectados: number;
+  ultima_alerta:      string;
+}

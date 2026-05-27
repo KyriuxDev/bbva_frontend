@@ -6,6 +6,7 @@ import type {
   ClientesPorSegmento, ClientesPorGenero,
   PrestamosPorTipo, SaldoPorTipoCuenta,
   ScoreCrediticio, TendenciaMes, CobrosExcedidos,
+  FraudeGeo, FraudeComercio,
 } from './dashboard.types';
 
 export const dashboardService = {
@@ -31,4 +32,8 @@ export const dashboardService = {
   getFraudePorCanal:      (): Promise<FraudePorCanal[]>      => api.get('/etl/fraude-por-canal').then(r => r.data),
   getFraudePorCategoria:  (): Promise<FraudePorCategoria[]>  => api.get('/etl/fraude-por-categoria').then(r => r.data),
   getFraudePorMes:        (): Promise<FraudePorMes[]>        => api.get('/etl/fraude-por-mes').then(r => r.data),
+
+  // ── ETL geo y comercios ──────────────────────────────────────
+  getFraudeGeografico:    (): Promise<FraudeGeo[]>           => api.get('/etl/fraude-geografico').then(r => r.data),
+  getFraudePorComercio:   (): Promise<FraudeComercio[]>      => api.get('/etl/fraude-por-comercio').then(r => r.data),
 };
