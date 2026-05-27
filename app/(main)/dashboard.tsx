@@ -1,8 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView,
   StyleSheet, Dimensions, StatusBar, Switch,
-  ActivityIndicator, Alert, Animated, Easing, PanResponder, Modal,
+  ActivityIndicator, Alert, Animated, Easing, PanResponder, Modal, RefreshControl,
 } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -884,25 +884,42 @@ export default function Dashboard() {
   const [incGraph, setIncGraph] = useState(true);
   const [expandedDebId, setExpandedDebId]         = useState<number | null>(null);
   const [expandedComercioId, setExpandedComercioId] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState<string>(
+    new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+  );
 
   // ── Queries con caché de 5 min ───────────────────────────────
-  const { data: kpisResumen }     = useQuery({ queryKey: ['kpis-resumen'],   queryFn: dashboardService.getKpisResumen,    staleTime: STALE });
-  const { data: etlResumen }      = useQuery({ queryKey: ['etl-resumen'],    queryFn: dashboardService.getEtlResumen,     staleTime: STALE });
-  const { data: debilidadesData } = useQuery({ queryKey: ['debilidades'],    queryFn: dashboardService.getDebilidades,    staleTime: STALE });
+  const { data: kpisResumen,     refetch: rKpisResumen     } = useQuery({ queryKey: ['kpis-resumen'],   queryFn: dashboardService.getKpisResumen,    staleTime: STALE });
+  const { data: etlResumen,      refetch: rEtl             } = useQuery({ queryKey: ['etl-resumen'],    queryFn: dashboardService.getEtlResumen,     staleTime: STALE });
+  const { data: debilidadesData, refetch: rDebilidades     } = useQuery({ queryKey: ['debilidades'],    queryFn: dashboardService.getDebilidades,    staleTime: STALE });
 
-  const { data: fraudePorCanal     = [] } = useQuery({ queryKey: ['fraude-canal'],     queryFn: dashboardService.getFraudePorCanal,     staleTime: STALE });
-  const { data: fraudePorCategoria = [] } = useQuery({ queryKey: ['fraude-categoria'], queryFn: dashboardService.getFraudePorCategoria, staleTime: STALE });
-  const { data: fraudePorMes       = [] } = useQuery({ queryKey: ['fraude-mes'],       queryFn: dashboardService.getFraudePorMes,       staleTime: STALE });
+  const { data: fraudePorCanal     = [], refetch: rCanal    } = useQuery({ queryKey: ['fraude-canal'],     queryFn: dashboardService.getFraudePorCanal,     staleTime: STALE });
+  const { data: fraudePorCategoria = [], refetch: rCategoria} = useQuery({ queryKey: ['fraude-categoria'], queryFn: dashboardService.getFraudePorCategoria, staleTime: STALE });
+  const { data: fraudePorMes       = [], refetch: rMes      } = useQuery({ queryKey: ['fraude-mes'],       queryFn: dashboardService.getFraudePorMes,       staleTime: STALE });
 
-  const { data: segmentos    = [], isLoading: loadSeg  } = useQuery({ queryKey: ['kpis-segmentos'], queryFn: dashboardService.getClientesPorSegmento, staleTime: STALE });
-  const { data: generos      = [], isLoading: loadGen  } = useQuery({ queryKey: ['kpis-generos'],   queryFn: dashboardService.getClientesPorGenero,   staleTime: STALE });
-  const { data: tendencia    = [], isLoading: loadTend } = useQuery({ queryKey: ['kpis-tendencia'], queryFn: dashboardService.getTendencia,           staleTime: STALE });
-  const { data: prestamos    = [], isLoading: loadPrest} = useQuery({ queryKey: ['kpis-prestamos'], queryFn: dashboardService.getPrestamosPorTipo,    staleTime: STALE });
-  const { data: saldoCuentas = [], isLoading: loadSaldo} = useQuery({ queryKey: ['kpis-saldo'],     queryFn: dashboardService.getSaldoPorTipoCuenta,  staleTime: STALE });
-  const { data: scores       = [], isLoading: loadScore} = useQuery({ queryKey: ['kpis-scores'],    queryFn: dashboardService.getScoreCrediticio,     staleTime: STALE });
-  const { data: cobrosExc    = [], isLoading: loadCob  } = useQuery({ queryKey: ['kpis-cobros'],    queryFn: dashboardService.getCobrosExcedidos,     staleTime: STALE });
-  const { data: fraudeGeo      = [], isLoading: loadGeo } = useQuery({ queryKey: ['fraude-geo'],      queryFn: dashboardService.getFraudeGeografico,  staleTime: STALE });
-  const { data: fraudeComercio = [], isLoading: loadCom } = useQuery({ queryKey: ['fraude-comercio'], queryFn: dashboardService.getFraudePorComercio,  staleTime: STALE });
+  const { data: segmentos    = [], isLoading: loadSeg,   refetch: rSeg    } = useQuery({ queryKey: ['kpis-segmentos'], queryFn: dashboardService.getClientesPorSegmento, staleTime: STALE });
+  const { data: generos      = [], isLoading: loadGen,   refetch: rGen    } = useQuery({ queryKey: ['kpis-generos'],   queryFn: dashboardService.getClientesPorGenero,   staleTime: STALE });
+  const { data: tendencia    = [], isLoading: loadTend,  refetch: rTend   } = useQuery({ queryKey: ['kpis-tendencia'], queryFn: dashboardService.getTendencia,           staleTime: STALE });
+  const { data: prestamos    = [], isLoading: loadPrest, refetch: rPrest  } = useQuery({ queryKey: ['kpis-prestamos'], queryFn: dashboardService.getPrestamosPorTipo,    staleTime: STALE });
+  const { data: saldoCuentas = [], isLoading: loadSaldo, refetch: rSaldo  } = useQuery({ queryKey: ['kpis-saldo'],     queryFn: dashboardService.getSaldoPorTipoCuenta,  staleTime: STALE });
+  const { data: scores       = [], isLoading: loadScore, refetch: rScores } = useQuery({ queryKey: ['kpis-scores'],    queryFn: dashboardService.getScoreCrediticio,     staleTime: STALE });
+  const { data: cobrosExc    = [], isLoading: loadCob,   refetch: rCobros } = useQuery({ queryKey: ['kpis-cobros'],    queryFn: dashboardService.getCobrosExcedidos,     staleTime: STALE });
+  const { data: fraudeGeo      = [], isLoading: loadGeo, refetch: rGeo    } = useQuery({ queryKey: ['fraude-geo'],      queryFn: dashboardService.getFraudeGeografico,  staleTime: STALE });
+  const { data: fraudeComercio = [], isLoading: loadCom, refetch: rCom    } = useQuery({ queryKey: ['fraude-comercio'], queryFn: dashboardService.getFraudePorComercio,  staleTime: STALE });
+
+  // ── Pull-to-refresh ──────────────────────────────────────────
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([
+      rKpisResumen(), rEtl(), rDebilidades(),
+      rCanal(), rCategoria(), rMes(),
+      rSeg(), rGen(), rTend(), rPrest(), rSaldo(), rScores(), rCobros(),
+      rGeo(), rCom(),
+    ]);
+    setLastUpdate(new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }));
+    setRefreshing(false);
+  }, []);
 
   // ── Datos derivados ──────────────────────────────────────────
   const donutFraude: Segment[] = fraudePorCanal.map(d => ({
@@ -967,7 +984,10 @@ export default function Dashboard() {
         <TouchableOpacity style={s.headerBtn} onPress={() => setHideAmounts(!hideAmounts)}>
           <Ionicons name={hideAmounts ? 'eye-off-outline' : 'eye-outline'} size={24} color="#004481" />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>BBVA</Text>
+        <View style={{ alignItems: 'center' }}>
+          <Text style={s.headerTitle}>BBVA</Text>
+          <Text style={s.headerTimestamp}>Act. {lastUpdate}</Text>
+        </View>
         <TouchableOpacity style={s.headerBtn} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={24} color="#004481" />
         </TouchableOpacity>
@@ -977,7 +997,8 @@ export default function Dashboard() {
 
         {/* ══ INICIO ══════════════════════════════════════════════ */}
         {activeTab === 'Inicio' && (
-          <ScrollView style={s.scrollBody} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView style={s.scrollBody} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#004481']} tintColor="#004481" />}>
             <View style={s.bannerCard}>
               <Text style={s.bannerTitle}>Hola, Admin</Text>
               <Text style={s.bannerSub}>Panel de análisis BBVA</Text>
@@ -1093,7 +1114,8 @@ export default function Dashboard() {
 
         {/* ══ KPIs ════════════════════════════════════════════════ */}
         {activeTab === 'KPIs' && (
-          <ScrollView style={s.scrollBody} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView style={s.scrollBody} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#004481']} tintColor="#004481" />}>
             <Text style={s.tabMainTitle}>Indicadores Clave</Text>
             <Text style={s.tabSubtitle}>Toca las barras para más detalle · Desliza la línea para ver valores</Text>
 
@@ -1265,7 +1287,8 @@ export default function Dashboard() {
 
         {/* ══ REPORTES ════════════════════════════════════════════ */}
         {activeTab === 'Reportes' && (
-          <ScrollView style={s.scrollBody} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView style={s.scrollBody} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#004481']} tintColor="#004481" />}>
             <Text style={s.tabMainTitle}>Reportes</Text>
             <Text style={s.tabSubtitle}>Genera y descarga informes ejecutivos</Text>
             <View style={s.reportHeroCard}>
@@ -1332,7 +1355,8 @@ export default function Dashboard() {
 
         {/* ══ DEBILIDADES ═════════════════════════════════════════ */}
         {activeTab === 'Debilidades' && (
-          <ScrollView style={s.scrollBody} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView style={s.scrollBody} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#004481']} tintColor="#004481" />}>
             <Text style={s.tabMainTitle}>Debilidades Detectadas</Text>
             <Text style={s.tabSubtitle}>Análisis automático basado en datos reales</Text>
 
@@ -1428,6 +1452,7 @@ const s = StyleSheet.create({
                       borderBottomColor: 'rgba(194,198,210,0.3)', elevation: 1 },
   headerBtn:        { padding: 8 },
   headerTitle:      { fontSize: 22, fontWeight: '800', color: '#004481', letterSpacing: 0.8 },
+  headerTimestamp:  { fontSize: 10, color: '#737781', marginTop: 1 },
   scrollBody:       { flex: 1 },
   scrollContent:    { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24 },
   bannerCard:       { backgroundColor: '#004481', borderRadius: 16, padding: 20, marginBottom: 20, elevation: 4 },
