@@ -95,6 +95,48 @@ const PASOS_ACCION: Record<string, string[]> = {
 };
 
 // ─────────────────────────────────────────────────────────────
+//  CONFIGURACIÓN DE OBJETIVOS ESTRATÉGICOS
+// ─────────────────────────────────────────────────────────────
+const OBJ_CONFIG: Record<string, {
+  umbral: number; titulo: string; meta: number;
+  area: string; icono: string; prioridad: 'Alta' | 'Media' | 'Baja';
+  acciones: string[];
+}> = {
+  porcentajePrestamosVencidos: {
+    umbral: 15, titulo: 'Reducir préstamos vencidos al 15%', meta: 15,
+    area: 'Crédito y Cobranza', icono: 'card-outline', prioridad: 'Alta',
+    acciones: ['Contactar clientes con +30 días de atraso', 'Ofrecer reestructuración de deuda', 'Activar campaña de regularización'],
+  },
+  porcentajeFraudePotencial: {
+    umbral: 1.5, titulo: 'Reducir tasa de fraude al 1.5%', meta: 1.5,
+    area: 'Seguridad y Prevención', icono: 'shield-outline', prioridad: 'Alta',
+    acciones: ['Activar alertas de transacciones inusuales', 'Reforzar autenticación en canales digitales', 'Revisar patrones de fraude por zona geográfica'],
+  },
+  porcentajeCobrosExcedidos: {
+    umbral: 7, titulo: 'Reducir cobros excedidos al 7%', meta: 7,
+    area: 'Cumplimiento Normativo', icono: 'business-outline', prioridad: 'Media',
+    acciones: ['Auditar tipos de cobro fuera de límite regulatorio', 'Actualizar parámetros en sistema de facturación', 'Capacitar al equipo en normativa de cobros vigente'],
+  },
+  porcentajeCuentasCanceladas: {
+    umbral: 10, titulo: 'Reducir cancelaciones al 10%', meta: 10,
+    area: 'Retención de Clientes', icono: 'people-outline', prioridad: 'Media',
+    acciones: ['Identificar causas de cancelación con encuestas', 'Lanzar oferta de retención personalizada', 'Diseñar programa de beneficios por antigüedad'],
+  },
+  porcentajeMetasFallidas: {
+    umbral: 20, titulo: 'Mejorar cumplimiento de metas al 80%', meta: 20,
+    area: 'Productos de Ahorro', icono: 'wallet-outline', prioridad: 'Baja',
+    acciones: ['Revisar metas vs perfil financiero del cliente', 'Enviar recordatorios automáticos de progreso', 'Ofrecer ajuste de metas con plazos más cortos'],
+  },
+};
+
+function calcTrimestre(): string {
+  const now   = new Date();
+  const q     = Math.floor(now.getMonth() / 3) + 1;
+  const meses = ['Ene - Mar', 'Abr - Jun', 'Jul - Sep', 'Oct - Dic'];
+  return `T${q} ${now.getFullYear()} · ${meses[q - 1]}`;
+}
+
+// ─────────────────────────────────────────────────────────────
 //  SKELETON LOADER
 // ─────────────────────────────────────────────────────────────
 function SkeletonCard({ lines = 3, height = 120 }: { lines?: number; height?: number }) {
@@ -565,6 +607,105 @@ function DebCard({ sol, idx, expandedId, setExpandedId }: {
 }
 
 // ─────────────────────────────────────────────────────────────
+//  TARJETA DE OBJETIVO ESTRATÉGICO
+// ─────────────────────────────────────────────────────────────
+function ObjetivoCard({ objetivo, idx, expandedId, setExpandedId }: {
+  objetivo: {
+    titulo: string; prioridad: 'Alta' | 'Media' | 'Baja';
+    valorActual: number; valorMeta: number; area: string;
+    estado: 'Pendiente' | 'En progreso'; acciones: string[]; icono: string;
+  };
+  idx: number; expandedId: number | null; setExpandedId: (v: number | null) => void;
+}) {
+  const color      = PRIORIDAD_COLOR[objetivo.prioridad] ?? '#737781';
+  const bg         = objetivo.prioridad === 'Alta' ? '#fbebeb' : objetivo.prioridad === 'Media' ? '#fff7e6' : '#e6f7f0';
+  const isExpanded = expandedId === idx;
+  const progress   = objetivo.valorActual > objetivo.valorMeta
+    ? Math.round((objetivo.valorMeta / objetivo.valorActual) * 100)
+    : 100;
+  const estadoColor = objetivo.estado === 'En progreso' ? '#1973B8' : '#737781';
+  const estadoBg    = objetivo.estado === 'En progreso' ? '#e8effa'  : '#f0f2f5';
+
+  const barAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(barAnim, { toValue: progress, duration: 700, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
+  }, [progress]);
+  const animWidth = barAnim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] });
+
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(fadeAnim, { toValue: isExpanded ? 1 : 0, duration: 220, useNativeDriver: true }).start();
+  }, [isExpanded]);
+
+  const handleToggle = () => {
+    if (Platform.OS === 'android') UIManager.setLayoutAnimationEnabledExperimental?.(true);
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedId(isExpanded ? null : idx);
+  };
+
+  return (
+    <View style={s.debDetailCard}>
+      <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
+        <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: bg,
+          alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name={objetivo.icono as any} size={24} color={color} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <View style={[s.badge, { backgroundColor: color }]}>
+            <Text style={s.badgeText}>{objetivo.prioridad.toUpperCase()}</Text>
+          </View>
+          <Text style={[s.debTitle, { marginBottom: 0 }]}>{objetivo.titulo}</Text>
+        </View>
+      </View>
+
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <Text style={{ fontSize: 12, color: '#5d5f5f' }}>
+          {'Actual: '}<Text style={{ fontWeight: '800', color: '#ba1a1a' }}>{objetivo.valorActual.toFixed(1)}%</Text>
+          {'  →  Meta: '}<Text style={{ fontWeight: '800', color: '#00a278' }}>{objetivo.valorMeta}%</Text>
+        </Text>
+        <Text style={{ fontSize: 12, fontWeight: '800', color }}>{progress}%</Text>
+      </View>
+
+      <View style={{ height: 8, backgroundColor: color + '25', borderRadius: 4, overflow: 'hidden', marginBottom: 12 }}>
+        <Animated.View style={{ width: animWidth, height: '100%', backgroundColor: color, borderRadius: 4 }} />
+      </View>
+
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <Ionicons name="business-outline" size={12} color="#737781" />
+          <Text style={{ fontSize: 11, color: '#737781' }}>Área: {objetivo.area}</Text>
+        </View>
+        <View style={{ backgroundColor: estadoBg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 }}>
+          <Text style={{ fontSize: 10, fontWeight: '700', color: estadoColor }}>{objetivo.estado.toUpperCase()}</Text>
+        </View>
+      </View>
+
+      <TouchableOpacity style={[s.accordionBtn, { marginTop: 10 }]} onPress={handleToggle}>
+        <Text style={s.accordionBtnText}>
+          {isExpanded ? 'Ocultar acciones recomendadas' : 'Ver acciones recomendadas'}
+        </Text>
+        <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color="#004481" />
+      </TouchableOpacity>
+
+      {isExpanded && (
+        <Animated.View style={[s.accordionContent, { opacity: fadeAnim }]}>
+          {objetivo.acciones.map((accion, i) => (
+            <View key={i} style={{ flexDirection: 'row', gap: 10,
+              marginBottom: i < objetivo.acciones.length - 1 ? 10 : 0, alignItems: 'flex-start' }}>
+              <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: color,
+                alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
+                <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>{i + 1}</Text>
+              </View>
+              <Text style={{ fontSize: 12, color: '#475569', lineHeight: 18, flex: 1 }}>{accion}</Text>
+            </View>
+          ))}
+        </Animated.View>
+      )}
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 //  MAPA SVG DE FRAUDE GEOGRAFICO
 // ─────────────────────────────────────────────────────────────
 const MEX_LAT_MIN = 14.5,   MEX_LAT_MAX = 32.7;
@@ -967,7 +1108,7 @@ export default function Dashboard() {
   const router  = useRouter();
   const logout  = useAuthStore((s) => s.logout);
 
-  const [activeTab, setActiveTab]     = useState<'Inicio' | 'KPIs' | 'Reportes' | 'Debilidades'>('Inicio');
+  const [activeTab, setActiveTab]     = useState<'Inicio' | 'KPIs' | 'Debilidades' | 'Objetivos'>('Inicio');
   const [hideAmounts, setHideAmounts] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [reportHistory, setReportHistory] = useState<{ name: string; date: string; uri: string }[]>([]);
@@ -978,6 +1119,7 @@ export default function Dashboard() {
   const [incGraph, setIncGraph] = useState(true);
   const [expandedDebId, setExpandedDebId]         = useState<number | null>(null);
   const [expandedComercioId, setExpandedComercioId] = useState<number | null>(null);
+  const [expandedObjId, setExpandedObjId]         = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<string>(
     new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
@@ -1040,6 +1182,20 @@ export default function Dashboard() {
   const indicadores = debilidadesData?.debilidades;
   const altaCount   = soluciones.filter(s => s.prioridad === 'Alta').length;
   const val = (v: string | number | undefined) => v !== undefined ? String(v) : '...';
+
+  const trimestre = calcTrimestre();
+  const indMap = indicadores as Record<string, number> | undefined;
+  const objetivosGenerados = indMap
+    ? Object.entries(OBJ_CONFIG)
+        .filter(([clave, cfg]) => (indMap[clave] ?? 0) > cfg.umbral)
+        .map(([clave, cfg]) => {
+          const valorActual = indMap[clave] ?? 0;
+          const progress    = Math.round((cfg.meta / valorActual) * 100);
+          return { ...cfg, valorActual, valorMeta: cfg.meta,
+            estado: (progress > 70 ? 'En progreso' : 'Pendiente') as 'Pendiente' | 'En progreso' };
+        })
+        .sort((a, b) => ({ Alta: 0, Media: 1, Baja: 2 }[a.prioridad] - { Alta: 0, Media: 1, Baja: 2 }[b.prioridad]))
+    : [];
 
   // ── Conclusión: tendencia mensual de fraudes ─────────────────
   const _fraudesMeta = (() => {
@@ -1472,70 +1628,58 @@ export default function Dashboard() {
           </ScrollView>
         )}
 
-        {/* ══ REPORTES ════════════════════════════════════════════ */}
-        {activeTab === 'Reportes' && (
+        {/* ══ OBJETIVOS ═══════════════════════════════════════════ */}
+        {activeTab === 'Objetivos' && (
           <ScrollView style={s.scrollBody} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#004481']} tintColor="#004481" />}>
-            <Text style={s.tabMainTitle}>Reportes</Text>
-            <Text style={s.tabSubtitle}>Genera y descarga informes ejecutivos</Text>
-            <View style={s.reportHeroCard}>
-              <Text style={s.heroTitle}>Reporte Ejecutivo de KPIs</Text>
-              <Text style={s.heroSubtitle}>Fraude · Debilidades · Soluciones</Text>
-              <Text style={s.heroDesc}>Informe con análisis completo del pipeline ETL, alertas y recomendaciones.</Text>
-              <TouchableOpacity style={[s.heroBtn, downloading && { opacity: 0.7 }]}
-                onPress={handleDownloadPDF} disabled={downloading} activeOpacity={0.9}>
-                {downloading
-                  ? <ActivityIndicator color="#004481" style={{ marginRight: 8 }} />
-                  : <Ionicons name="download-outline" size={20} color="#004481" style={{ marginRight: 8 }} />}
-                <Text style={s.heroBtnTxt}>{downloading ? 'Generando PDF...' : 'Generar y Descargar PDF'}</Text>
-              </TouchableOpacity>
-              <View style={s.heroTagRow}>
-                {['Incluye gráficas','Análisis automático','Soluciones'].map((tag, i) => (
-                  <View key={i} style={s.heroTag}><Text style={s.heroTagTxt}>{tag}</Text></View>
-                ))}
+            <Text style={s.tabMainTitle}>Objetivos</Text>
+            <Text style={s.tabSubtitle}>Metas estratégicas generadas automáticamente</Text>
+
+            <View style={s.objTrimestreCard}>
+              <View style={s.objTrimestreIcon}>
+                <Ionicons name="calendar-outline" size={20} color="#004481" />
+              </View>
+              <View>
+                <Text style={{ fontSize: 10, fontWeight: '600', color: '#737781', letterSpacing: 0.5 }}>TRIMESTRE ACTUAL</Text>
+                <Text style={s.objTrimestreText}>{trimestre}</Text>
               </View>
             </View>
 
-            {reportHistory.length > 0 && (
-              <>
-                <Text style={s.sectionHeader}>REPORTES GENERADOS</Text>
-                {reportHistory.map((rep, idx) => (
-                  <TouchableOpacity key={idx} style={s.repListItem} activeOpacity={0.8}
-                    onPress={async () => {
-                      const ok = await Sharing.isAvailableAsync();
-                      if (ok) await Sharing.shareAsync(rep.uri, { mimeType: 'application/pdf' });
-                    }}>
-                    <View style={s.pdfIconContainer}>
-                      <Ionicons name="document-text-outline" size={24} color="#ba1a1a" />
+            {!debilidadesData
+              ? <>{[1, 2, 3].map(i => <SkeletonCard key={i} height={170} lines={5} />)}</>
+              : objetivosGenerados.length === 0
+                ? (
+                  <View style={{ alignItems: 'center', paddingVertical: 40 }}>
+                    <Ionicons name="checkmark-circle-outline" size={64} color="#00a278" />
+                    <Text style={{ fontSize: 18, fontWeight: '800', color: '#00a278', marginTop: 12, textAlign: 'center' }}>
+                      Sin alertas críticas este trimestre ✓
+                    </Text>
+                    <Text style={{ fontSize: 13, color: '#5d5f5f', marginTop: 8, textAlign: 'center', lineHeight: 20 }}>
+                      Todos los indicadores están dentro de los parámetros objetivo. ¡Buen trabajo!
+                    </Text>
+                  </View>
+                )
+                : (
+                  <>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 8 }}>
+                      <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(194,198,210,0.4)' }} />
+                      <Text style={{ fontSize: 11, fontWeight: '800', color: '#737781', letterSpacing: 1.2 }}>
+                        {objetivosGenerados.length} OBJETIVO{objetivosGenerados.length > 1 ? 'S' : ''} ACTIVO{objetivosGenerados.length > 1 ? 'S' : ''}
+                      </Text>
+                      <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(194,198,210,0.4)' }} />
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.repFileName} numberOfLines={1}>{rep.name}</Text>
-                      <Text style={s.repSubText}>{rep.date}</Text>
-                    </View>
-                    <View style={s.repDownloadBtn}>
-                      <Ionicons name="share-outline" size={20} color="#004481" />
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </>
-            )}
-
-            <Text style={s.sectionHeader}>PERSONALIZAR REPORTE</Text>
-            <View style={s.customizeCard}>
-              {[
-                { label: 'KPIs generales',         val: incKpi,   set: setIncKpi },
-                { label: 'Análisis de fraude',      val: incFraud, set: setIncFraud },
-                { label: 'Debilidades detectadas',  val: incDeb,   set: setIncDeb },
-                { label: 'Recomendaciones',         val: incRec,   set: setIncRec },
-                { label: 'Gráficas',                val: incGraph, set: setIncGraph },
-              ].map((row, i, arr) => (
-                <View key={i} style={[s.customRow, i === arr.length - 1 && { borderBottomWidth: 0, paddingBottom: 0 }]}>
-                  <Text style={s.customRowLabel}>{row.label}</Text>
-                  <Switch value={row.val} onValueChange={row.set}
-                    trackColor={{ false: '#d1d5db', true: '#004481' }} thumbColor="#fff" />
-                </View>
-              ))}
-            </View>
+                    {objetivosGenerados.map((obj, idx) => (
+                      <ObjetivoCard
+                        key={idx}
+                        objetivo={obj}
+                        idx={idx}
+                        expandedId={expandedObjId}
+                        setExpandedId={setExpandedObjId}
+                      />
+                    ))}
+                  </>
+                )
+            }
             <View style={{ height: 40 }} />
           </ScrollView>
         )}
@@ -1603,10 +1747,10 @@ export default function Dashboard() {
       {/* ── Tab Bar ── */}
       <View style={s.tabBar}>
         {([
-          { key: 'Inicio',      icon: 'home',          iconO: 'home-outline' },
-          { key: 'KPIs',        icon: 'bar-chart',     iconO: 'bar-chart-outline' },
-          { key: 'Reportes',    icon: 'document-text', iconO: 'document-text-outline' },
-          { key: 'Debilidades', icon: 'warning',       iconO: 'warning-outline', badge: altaCount },
+          { key: 'Inicio',      icon: 'home',      iconO: 'home-outline'      },
+          { key: 'KPIs',        icon: 'bar-chart', iconO: 'bar-chart-outline' },
+          { key: 'Debilidades', icon: 'warning',   iconO: 'warning-outline',   badge: altaCount },
+          { key: 'Objetivos',   icon: 'flag',      iconO: 'flag-outline'       },
         ] as const).map(tab => (
           <TouchableOpacity key={tab.key} style={s.tabItem} onPress={() => setActiveTab(tab.key as any)}>
             <View>
@@ -1758,4 +1902,10 @@ const s = StyleSheet.create({
   comercioStatBox:   { flex: 1, backgroundColor: '#f4f6fa', borderRadius: 10, padding: 10 },
   comercioStatLabel: { fontSize: 10, color: '#737781', fontWeight: '600', marginBottom: 2 },
   comercioStatVal:   { fontSize: 13, fontWeight: '700', color: '#1a1c1c' },
+  // Pantalla Objetivos
+  objTrimestreCard:  { flexDirection: 'row', alignItems: 'center', gap: 12,
+                       backgroundColor: '#e8effa', borderRadius: 14, padding: 16, marginBottom: 20, elevation: 1 },
+  objTrimestreIcon:  { width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff',
+                       alignItems: 'center', justifyContent: 'center', elevation: 2 },
+  objTrimestreText:  { fontSize: 17, fontWeight: '800', color: '#004481', marginTop: 2 },
 });
