@@ -1185,6 +1185,28 @@ export default function Dashboard() {
 
   const trimestre = calcTrimestre();
   const indMap = indicadores as Record<string, number> | undefined;
+
+  const estadoGlobal = (() => {
+    if (!indicadores) return null;
+    const lista = [
+      { label: 'Préstamos Vencidos',       valor: indicadores.porcentajePrestamosVencidos, umbral: UMBRALES.porcentajePrestamosVencidos },
+      { label: 'Fraude Potencial',          valor: indicadores.porcentajeFraudePotencial,   umbral: UMBRALES.porcentajeFraudePotencial   },
+      { label: 'Cobros Excedidos',          valor: indicadores.porcentajeCobrosExcedidos,   umbral: UMBRALES.porcentajeCobrosExcedidos   },
+      { label: 'Cuentas Canceladas',        valor: indicadores.porcentajeCuentasCanceladas, umbral: UMBRALES.porcentajeCuentasCanceladas },
+      { label: 'Metas de Ahorro Fallidas',  valor: indicadores.porcentajeMetasFallidas,     umbral: UMBRALES.porcentajeMetasFallidas     },
+    ];
+    const enRiesgo    = lista.filter(i => i.valor > i.umbral);
+    const enAtencion  = lista.filter(i => i.valor > i.umbral * 0.8 && i.valor <= i.umbral);
+    if (enRiesgo.length > 0) {
+      const peor = enRiesgo.reduce((m, i) => (i.valor / i.umbral) > (m.valor / m.umbral) ? i : m);
+      return { estado: 'CRITICO' as const, count: enRiesgo.length, peor };
+    }
+    if (enAtencion.length > 0) {
+      const cercano = enAtencion.reduce((m, i) => (i.valor / i.umbral) > (m.valor / m.umbral) ? i : m);
+      return { estado: 'ATENCION' as const, count: enAtencion.length, peor: cercano };
+    }
+    return { estado: 'NORMAL' as const, count: 0, peor: null };
+  })();
   const objetivosGenerados = indMap
     ? Object.entries(OBJ_CONFIG)
         .filter(([clave, cfg]) => (indMap[clave] ?? 0) > cfg.umbral)
@@ -1311,6 +1333,40 @@ export default function Dashboard() {
               <Text style={s.bannerTitle}>Hola, Admin</Text>
               <Text style={s.bannerSub}>Panel de análisis BBVA</Text>
             </View>
+
+            {estadoGlobal && (() => {
+              const isCritico  = estadoGlobal.estado === 'CRITICO';
+              const isAtencion = estadoGlobal.estado === 'ATENCION';
+              const color  = isCritico ? '#c0392b' : isAtencion ? '#e67e22' : '#27ae60';
+              const bg     = isCritico ? '#fff4f4' : isAtencion ? '#fffbf0' : '#f0fff4';
+              const icon   = isCritico ? 'warning-outline' : isAtencion ? 'trending-up-outline' : 'checkmark-circle-outline';
+              const etiq   = isCritico ? 'Atencion requerida' : isAtencion ? 'Monitoreo recomendado' : 'Operando con normalidad';
+              const titulo = isCritico
+                ? `Estado del banco: ${etiq} · ${estadoGlobal.count} indicador${estadoGlobal.count > 1 ? 'es' : ''} fuera de rango`
+                : isAtencion
+                  ? `Estado del banco: ${etiq} · ${estadoGlobal.count} indicador${estadoGlobal.count > 1 ? 'es' : ''} cerca del limite`
+                  : `Estado del banco: ${etiq}`;
+              const subtexto = estadoGlobal.peor
+                ? `${estadoGlobal.peor.label} al ${estadoGlobal.peor.valor.toFixed(1)}%, ${isCritico ? 'supera el umbral permitido' : 'cercano al umbral'}`
+                : 'Todos los indicadores dentro del rango esperado';
+              return (
+                <TouchableOpacity
+                  style={[s.statusBanner, { backgroundColor: bg, borderColor: color + '40' }]}
+                  onPress={() => setActiveTab('Debilidades')}
+                  activeOpacity={0.82}
+                >
+                  <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: color + '18',
+                    alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Ionicons name={icon as any} size={17} color={color} />
+                  </View>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color, lineHeight: 16 }}>{titulo}</Text>
+                    <Text style={{ fontSize: 11, color: color + 'bb', lineHeight: 15 }}>{subtexto}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={15} color={color + '88'} />
+                </TouchableOpacity>
+              );
+            })()}
 
             <Text style={s.sectionTitle}>Indicadores Generales</Text>
             <View style={s.kpiGrid}>
@@ -1902,6 +1958,9 @@ const s = StyleSheet.create({
   comercioStatBox:   { flex: 1, backgroundColor: '#f4f6fa', borderRadius: 10, padding: 10 },
   comercioStatLabel: { fontSize: 10, color: '#737781', fontWeight: '600', marginBottom: 2 },
   comercioStatVal:   { fontSize: 13, fontWeight: '700', color: '#1a1c1c' },
+  // Banner estado global (Inicio)
+  statusBanner:      { flexDirection: 'row', alignItems: 'center', gap: 12,
+                       borderRadius: 12, padding: 12, marginBottom: 20, borderWidth: 1 },
   // Pantalla Objetivos
   objTrimestreCard:  { flexDirection: 'row', alignItems: 'center', gap: 12,
                        backgroundColor: '#e8effa', borderRadius: 14, padding: 16, marginBottom: 20, elevation: 1 },
