@@ -1042,35 +1042,39 @@ export default function Dashboard() {
   const val = (v: string | number | undefined) => v !== undefined ? String(v) : '...';
 
   // ── Conclusión: tendencia mensual de fraudes ─────────────────
-  const conclusionFraudes = (() => {
+  const _fraudesMeta = (() => {
     if (fraudePorMes.length < 3) return null;
-    const pico    = fraudePorMes.reduce((m, d) => d.total_fraudes > m.total_fraudes ? d : m);
-    const tercio  = Math.max(1, Math.floor(fraudePorMes.length / 3));
-    const avgIni  = fraudePorMes.slice(0, tercio).reduce((s, d) => s + d.total_fraudes, 0) / tercio;
-    const avgFin  = fraudePorMes.slice(-tercio).reduce((s, d) => s + d.total_fraudes, 0) / tercio;
-    const dir     = avgFin > avgIni ? 'al alza' : 'a la baja';
-    const añoIni  = fraudePorMes[0].año_mes.split('-')[0];
-    const añoFin  = fraudePorMes[fraudePorMes.length - 1].año_mes.split('-')[0];
-    const txtDir  = añoIni !== añoFin
-      ? `La tendencia en ${añoFin} es ${dir} respecto a ${añoIni}.`
-      : `La tendencia general es ${dir}.`;
-    return `Pico más alto: ${fmtMesLargo(pico.año_mes)} con ${fmt(pico.total_fraudes)} alertas. ${txtDir}`;
+    const pico   = fraudePorMes.reduce((m, d) => d.total_fraudes > m.total_fraudes ? d : m);
+    const tercio = Math.max(1, Math.floor(fraudePorMes.length / 3));
+    const avgIni = fraudePorMes.slice(0, tercio).reduce((s, d) => s + d.total_fraudes, 0) / tercio;
+    const avgFin = fraudePorMes.slice(-tercio).reduce((s, d) => s + d.total_fraudes, 0) / tercio;
+    const isAlza = avgFin > avgIni;
+    const texto  = isAlza
+      ? `Los fraudes están en aumento. ${fmtMesLargo(pico.año_mes)} fue el mes más crítico del periodo, lo que indica que los controles actuales no son suficientes para frenar el crecimiento.`
+      : `La tendencia de fraudes muestra mejoría. ${fmtMesLargo(pico.año_mes)} fue el mes más crítico, pero los niveles recientes son más bajos, señal de que los controles están dando resultados.`;
+    return { texto, isAlza };
   })();
+  const conclusionFraudes    = _fraudesMeta?.texto ?? null;
+  const conclusionFraudesAlert = _fraudesMeta?.isAlza ?? false;
 
   // ── Conclusión: fraude por categoría ────────────────────────
-  const catSlice   = fraudePorCategoria.slice(0, 8);
-  const catMax     = catSlice.length ? catSlice.reduce((m, d) => d.total_fraudes > m.total_fraudes ? d : m) : null;
-  const catMin     = catSlice.length ? catSlice.reduce((m, d) => d.total_fraudes < m.total_fraudes ? d : m) : null;
-  const catMaxIdx  = catMax ? catSlice.findIndex(d => d.categoria === catMax.categoria) : -1;
-  const conclusionCat = catMax && catMin && catMax.categoria !== catMin.categoria
-    ? `${catMax.categoria} es la categoría más vulnerable con ${fmt(catMax.total_fraudes)} alertas. ${catMin.categoria} es la de menor incidencia con ${fmt(catMin.total_fraudes)} alertas.`
-    : null;
+  const catSlice  = fraudePorCategoria.slice(0, 8);
+  const catMax    = catSlice.length ? catSlice.reduce((m, d) => d.total_fraudes > m.total_fraudes ? d : m) : null;
+  const catMin    = catSlice.length ? catSlice.reduce((m, d) => d.total_fraudes < m.total_fraudes ? d : m) : null;
+  const catMaxIdx = catMax ? catSlice.findIndex(d => d.categoria === catMax.categoria) : -1;
+  const conclusionCat = (() => {
+    if (!catMax || !catMin || catMax.categoria === catMin.categoria) return null;
+    const diff = (catMax.total_fraudes - catMin.total_fraudes) / catMax.total_fraudes;
+    return diff > 0.15
+      ? `${catMax.categoria} concentra notablemente más fraude que el resto. Focalizar los controles en esta categoría tendría el mayor impacto en la reducción de alertas.`
+      : `El fraude está distribuido de forma similar entre categorías. ${catMax.categoria} encabeza la lista y merece monitoreo prioritario.`;
+  })();
 
   // ── Conclusión: préstamos por tipo ──────────────────────────
   const prestMax = prestamos.length ? prestamos.reduce((m: PrestamosPorTipo, d: PrestamosPorTipo) => d.total > m.total ? d : m) : null;
   const prestMin = prestamos.length ? prestamos.reduce((m: PrestamosPorTipo, d: PrestamosPorTipo) => d.total < m.total ? d : m) : null;
   const conclusionPrest = prestMax && prestMin && prestMax.tipo !== prestMin.tipo
-    ? `${prestMax.tipo} es el tipo con mayor demanda con ${fmt(prestMax.total)} préstamos. ${prestMin.tipo} tiene la menor con ${fmt(prestMin.total)}.`
+    ? `Los préstamos ${prestMax.tipo.toLowerCase()} son los más solicitados y representan la mayor exposición crediticia de la cartera. Deben ser foco del análisis de morosidad.`
     : null;
 
   // ── Conclusión: saldo por tipo de cuenta ────────────────────
@@ -1080,9 +1084,20 @@ export default function Dashboard() {
   // ── Conclusión: score crediticio ─────────────────────────────
   const scoreMax = scores.length ? scores.reduce((m: ScoreCrediticio, d: ScoreCrediticio) => d.total > m.total ? d : m) : null;
   const scoreMin = scores.length ? scores.reduce((m: ScoreCrediticio, d: ScoreCrediticio) => d.total < m.total ? d : m) : null;
-  const conclusionScore = scoreMax && scoreMin && scoreMax.rango !== scoreMin.rango
-    ? `El rango ${scoreMax.rango} concentra el mayor número de clientes con ${fmt(scoreMax.total)}. El rango ${scoreMin.rango} tiene la menor cantidad con ${fmt(scoreMin.total)}.`
-    : null;
+  const _scoreAlert = (() => {
+    if (!scoreMax) return false;
+    const firstNum = parseInt(scoreMax.rango.split(/[-\s]/)[0], 10);
+    return !isNaN(firstNum) && firstNum < 600;
+  })();
+  const conclusionScore = (() => {
+    if (!scoreMax || !scoreMin || scoreMax.rango === scoreMin.rango) return null;
+    const firstNum = parseInt(scoreMax.rango.split(/[-\s]/)[0], 10);
+    if (!isNaN(firstNum) && firstNum >= 600)
+      return `La mayoría de clientes presenta un perfil crediticio saludable. Esto reduce el riesgo de impago y da margen para ampliar la oferta de crédito.`;
+    if (!isNaN(firstNum) && firstNum < 600)
+      return `El segmento más numeroso muestra un score que requiere atención. Es recomendable reforzar el análisis crediticio en nuevas solicitudes para reducir el riesgo de incumplimiento.`;
+    return `El rango ${scoreMax.rango} agrupa al mayor número de clientes. Entender este perfil es clave para diseñar productos financieros adecuados.`;
+  })();
 
   // ── Descarga PDF ─────────────────────────────────────────────
   const handleDownloadPDF = async () => {
@@ -1271,8 +1286,9 @@ export default function Dashboard() {
                   />
                 : <SkeletonCard height={160} lines={2} />}
               {conclusionFraudes && (
-                <View style={s.conclusionBox}>
-                  <Ionicons name="analytics-outline" size={14} color="#004481" style={{ marginRight: 6, flexShrink: 0 }} />
+                <View style={[s.conclusionBox, conclusionFraudesAlert && s.conclusionBoxAlert]}>
+                  <Ionicons name={conclusionFraudesAlert ? 'warning-outline' : 'bulb-outline'}
+                    size={15} color={conclusionFraudesAlert ? '#ba1a1a' : '#004481'} style={{ flexShrink: 0, marginTop: 1 }} />
                   <Text style={s.conclusionTxt}>{conclusionFraudes}</Text>
                 </View>
               )}
@@ -1289,8 +1305,8 @@ export default function Dashboard() {
                       valueFormatter={fmt}
                     />
                     {conclusionCat && (
-                      <View style={s.conclusionBox}>
-                        <Ionicons name="analytics-outline" size={14} color="#004481" style={{ marginRight: 6, flexShrink: 0 }} />
+                      <View style={[s.conclusionBox, s.conclusionBoxAlert]}>
+                        <Ionicons name="warning-outline" size={15} color="#ba1a1a" style={{ flexShrink: 0, marginTop: 1 }} />
                         <Text style={s.conclusionTxt}>{conclusionCat}</Text>
                       </View>
                     )}
@@ -1327,7 +1343,7 @@ export default function Dashboard() {
                     />
                     {conclusionPrest && (
                       <View style={s.conclusionBox}>
-                        <Ionicons name="analytics-outline" size={14} color="#004481" style={{ marginRight: 6, flexShrink: 0 }} />
+                        <Ionicons name="bulb-outline" size={15} color="#004481" style={{ flexShrink: 0, marginTop: 1 }} />
                         <Text style={s.conclusionTxt}>{conclusionPrest}</Text>
                       </View>
                     )}
@@ -1347,9 +1363,9 @@ export default function Dashboard() {
                     />
                     {saldoMax && saldoMin && saldoMax.tipo !== saldoMin.tipo && (
                       <View style={s.conclusionBox}>
-                        <Ionicons name="analytics-outline" size={14} color="#004481" style={{ marginRight: 6, flexShrink: 0 }} />
+                        <Ionicons name="bulb-outline" size={15} color="#004481" style={{ flexShrink: 0, marginTop: 1 }} />
                         <Text style={s.conclusionTxt}>
-                          {`${saldoMax.tipo} concentra el mayor saldo${hideAmounts ? '' : ` con ${fmtMXN(Number(saldoMax.saldo_total))}`}. ${saldoMin.tipo} tiene el menor${hideAmounts ? '' : ` con ${fmtMXN(Number(saldoMin.saldo_total))}`}.`}
+                          {`La ${saldoMax.tipo} concentra la mayor liquidez del banco. Es el segmento más sensible ante variaciones del mercado y requiere monitoreo constante.`}
                         </Text>
                       </View>
                     )}
@@ -1366,8 +1382,9 @@ export default function Dashboard() {
                       colorFn={(i) => ['#ba1a1a','#fbbd08','#1973B8','#00a278'][i % 4]} valueFormatter={fmt}
                     />
                     {conclusionScore && (
-                      <View style={s.conclusionBox}>
-                        <Ionicons name="analytics-outline" size={14} color="#004481" style={{ marginRight: 6, flexShrink: 0 }} />
+                      <View style={[s.conclusionBox, _scoreAlert && s.conclusionBoxAlert]}>
+                        <Ionicons name={_scoreAlert ? 'warning-outline' : 'bulb-outline'}
+                          size={15} color={_scoreAlert ? '#ba1a1a' : '#004481'} style={{ flexShrink: 0, marginTop: 1 }} />
                         <Text style={s.conclusionTxt}>{conclusionScore}</Text>
                       </View>
                     )}
@@ -1674,10 +1691,10 @@ const s = StyleSheet.create({
                       marginBottom: 14, borderWidth: 1, borderColor: 'rgba(194,198,210,0.4)', elevation: 2 },
   cardTitle:        { fontSize: 15, fontWeight: '700', color: '#1a1c1c', marginBottom: 2 },
   cardSubtitle:     { fontSize: 11, color: '#737781', marginBottom: 8 },
-  conclusionBox:    { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#f0f4ff',
-                      borderRadius: 10, borderLeftWidth: 3, borderLeftColor: '#004481',
-                      padding: 10, marginTop: 14 },
-  conclusionTxt:    { fontSize: 12, color: '#1a1c1c', flex: 1, lineHeight: 17 },
+  conclusionBox:    { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#f4f5f8',
+                      borderRadius: 10, padding: 12, marginTop: 14, gap: 8 },
+  conclusionBoxAlert: { backgroundColor: '#fff4f4' },
+  conclusionTxt:    { fontSize: 12, color: '#3d4046', flex: 1, lineHeight: 18 },
   sideBySideRow:    { flexDirection: 'row', justifyContent: 'space-between', gap: 10, marginBottom: 14 },
   halfCard:         { flex: 1, backgroundColor: '#fff', borderRadius: 16, padding: 14,
                       borderWidth: 1, borderColor: 'rgba(194,198,210,0.4)', elevation: 2 },
