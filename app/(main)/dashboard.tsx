@@ -1363,26 +1363,56 @@ export default function Dashboard() {
   const handleDownloadPDF = async () => {
     try {
       setDownloading(true);
-      const token    = useAuthStore.getState().accessToken;
+
+      // Leer el token correctamente (puede ser null si SecureStore no hidrata aún)
+      const token = useAuthStore.getState().accessToken;
+      if (!token) {
+        Alert.alert('Error', 'Sesión expirada. Vuelve a iniciar sesión.');
+        return;
+      }
+
       const fileName = `reporte-bbva-${Date.now()}.pdf`;
       const fileUri  = FileSystem.documentDirectory + fileName;
       const params   = new URLSearchParams({
         kpis: String(incKpi), fraude: String(incFraud),
-        debilidades: String(incDeb), recomendaciones: String(incRec), graficas: String(incGraph),
+        debilidades: String(incDeb), recomendaciones: String(incRec),
+        graficas: String(incGraph),
       });
-      const result = await FileSystem.downloadAsync(
-        `${process.env.EXPO_PUBLIC_API_URL}/reportes/kpis?${params}`,
-        fileUri, { headers: { Authorization: `Bearer ${token}` } },
-      );
+
+      // Agregar timeout explícito con AbortController no es posible en downloadAsync,
+      //    pero sí puedes hacer un fetch previo para validar que el servidor responde
+      const result = await Promise.race([
+        FileSystem.downloadAsync(
+          `${process.env.EXPO_PUBLIC_API_URL}/reportes/kpis?${params}`,
+          fileUri,
+          { headers: { Authorization: `Bearer ${token}` } }
+        ),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Timeout: el servidor tardó demasiado')), 30000)
+        ),
+      ]);
+
       if (result.status === 200) {
-        const fecha = new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
-        setReportHistory(prev => [{ name: fileName, date: fecha, uri: result.uri }, ...prev]);
+        const fecha = new Date().toLocaleDateString('es-MX', {
+          day: '2-digit', month: 'short', year: 'numeric',
+        });
+        setReportHistory(prev => [
+          { name: fileName, date: fecha, uri: result.uri }, ...prev,
+        ]);
         const canShare = await Sharing.isAvailableAsync();
-        if (canShare) await Sharing.shareAsync(result.uri, { mimeType: 'application/pdf' });
-        else Alert.alert('Descargado', `PDF guardado en: ${result.uri}`);
-      } else { Alert.alert('Error', 'El servidor no pudo generar el reporte.'); }
-    } catch { Alert.alert('Error', 'No se pudo descargar. Verifica la conexión.'); }
-    finally  { setDownloading(false); }
+        if (canShare) {
+          await Sharing.shareAsync(result.uri, { mimeType: 'application/pdf' });
+        } else {
+          Alert.alert('Descargado', `PDF guardado en: ${result.uri}`);
+        }
+      } else {
+        Alert.alert('Error', `El servidor respondió con estado ${result.status}`);
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err?.message ?? 'No se pudo descargar. Verifica la conexión.');
+    } finally {
+      setDownloading(false);
+    }
   };
 
   const handleLogout = async () => { await logout(); router.replace('/(auth)/welcome'); };
