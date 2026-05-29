@@ -7,6 +7,7 @@ import {
 } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import * as Print from 'expo-print';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Circle, G, Line, Text as SvgText, Polyline, Defs, LinearGradient as SvgGradient, Stop, Path } from 'react-native-svg';
@@ -1101,6 +1102,85 @@ function ComercioCard({ item, idx, expandedId, setExpandedId }: {
 }
 
 // ─────────────────────────────────────────────────────────────
+//  PDF HELPERS
+// ─────────────────────────────────────────────────────────────
+function esc(s: string | number): string {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function pdfFecha(): string {
+  return new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' });
+}
+function pdfBarsSvg(items: { label: string; value: number }[], color = '#004990'): string {
+  if (!items.length) return '';
+  const maxV = Math.max(...items.map(i => i.value), 1);
+  const bH = 22, gap = 6, lblW = 140, barMaxW = 190;
+  const W = lblW + barMaxW + 70, H = items.length * (bH + gap) + 10;
+  const bars = items.map((item, i) => {
+    const bw = Math.max(2, (item.value / maxV) * barMaxW);
+    const y  = i * (bH + gap);
+    return `<text x="0" y="${y+bH-5}" font-size="10" fill="#5d5f5f" font-family="sans-serif">${esc(item.label)}</text>
+      <rect x="${lblW}" y="${y}" width="${bw}" height="${bH}" fill="${color}" rx="3"/>
+      <text x="${lblW+bw+6}" y="${y+bH-5}" font-size="10" fill="${color}" font-weight="bold" font-family="sans-serif">${esc(item.value.toLocaleString('es-MX'))}</text>`;
+  }).join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">${bars}</svg>`;
+}
+function pdfLineSvg(data: { label: string; value: number }[]): string {
+  if (data.length < 2) return '';
+  const W = 420, H = 110, padL = 36, padR = 10, padT = 8, padB = 22;
+  const maxV = Math.max(...data.map(d => d.value));
+  const minV = Math.min(...data.map(d => d.value));
+  const xStep = (W - padL - padR) / (data.length - 1);
+  const yFor  = (v: number) => padT + (1 - (maxV === minV ? 0.5 : (v - minV) / (maxV - minV))) * (H - padT - padB);
+  const pts   = data.map((d, i) => `${(padL + i * xStep).toFixed(1)},${yFor(d.value).toFixed(1)}`).join(' ');
+  const area  = `M${padL},${H-padB} ` + data.map((d, i) => `L${(padL+i*xStep).toFixed(1)},${yFor(d.value).toFixed(1)}`).join(' ') + ` L${padL+(data.length-1)*xStep},${H-padB} Z`;
+  const step  = Math.ceil(data.length / 5);
+  const xlbls = data.map((d, i) => ({ d, i })).filter(({ i }) => i % step === 0 || i === data.length - 1)
+    .map(({ d, i }) => `<text x="${(padL+i*xStep).toFixed(1)}" y="${H-4}" font-size="8" fill="#737781" text-anchor="middle" font-family="sans-serif">${esc(d.label)}</text>`).join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
+    <path d="${area}" fill="#ba1a1a" opacity="0.08"/>
+    <polyline fill="none" stroke="#ba1a1a" stroke-width="2" stroke-linejoin="round" points="${pts}"/>
+    ${xlbls}</svg>`;
+}
+function pdfConclusion(text: string, isAlert = false): string {
+  return `<div class="conclusion${isAlert?' alert':''}">${esc(text)}</div>`;
+}
+function pdfAcciones(acciones: string[]): string {
+  return `<div class="acciones-title">Acciones recomendadas</div>` +
+    acciones.map((a, i) => `<div class="accion"><div class="accion-num">${i+1}</div><div class="accion-txt">${esc(a)}</div></div>`).join('');
+}
+function pdfTable(rows: { label: string; val: string }[]): string {
+  return `<table class="table"><thead><tr><th>Indicador</th><th>Valor</th></tr></thead><tbody>` +
+    rows.map(r => `<tr><td>${esc(r.label)}</td><td>${esc(r.val)}</td></tr>`).join('') + `</tbody></table>`;
+}
+function buildDocHtml(docTitle: string, fecha: string, tri: string, bodyHtml: string): string {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><style>
+*{margin:0;padding:0;box-sizing:border-box;}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1a1c1c;background:#fff;}
+.hdr{background:#004990;color:#fff;padding:24px 28px 20px;}.hdr-logo{font-size:30px;font-weight:900;letter-spacing:1px;margin-bottom:6px;}
+.hdr-title{font-size:18px;font-weight:700;margin-bottom:4px;}.hdr-meta{font-size:12px;opacity:.8;}
+.body{padding:20px 28px;}.sec{margin-bottom:24px;padding-bottom:24px;border-bottom:1px solid #e2e8f0;}.sec:last-child{border-bottom:none;}
+.sec-title{font-size:11px;font-weight:800;color:#737781;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:12px;}
+.chips{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;}.chip{background:#f4f6fa;border-radius:8px;padding:10px 14px;flex:1;min-width:90px;}
+.chip-lbl{font-size:10px;color:#737781;font-weight:600;margin-bottom:3px;}.chip-val{font-size:22px;font-weight:800;color:#004990;}
+.chip-val.ok{color:#27ae60;}.chip-val.risk{color:#c0392b;}
+.conclusion{background:#f4f6fa;border-left:3px solid #004990;padding:12px;margin:12px 0;font-size:12px;color:#3d4046;line-height:1.6;}
+.conclusion.alert{background:#fff4f4;border-left-color:#c0392b;}
+.acciones-title{font-size:12px;font-weight:700;color:#004990;margin:12px 0 8px;}
+.accion{display:flex;gap:10px;margin-bottom:7px;align-items:flex-start;}
+.accion-num{background:#004990;color:#fff;border-radius:50%;width:18px;height:18px;font-size:10px;font-weight:800;flex-shrink:0;text-align:center;line-height:18px;}
+.accion-txt{font-size:12px;color:#475569;line-height:1.5;}
+.table{width:100%;border-collapse:collapse;margin:10px 0;}.table th{background:#f4f6fa;font-size:11px;font-weight:700;color:#5d5f5f;padding:8px 10px;text-align:left;border-bottom:2px solid #e2e8f0;}
+.table td{font-size:12px;padding:8px 10px;border-bottom:1px solid #f0f2f5;}.table td:last-child{font-weight:700;color:#004990;}
+.chart{margin:14px 0;}.badge{display:inline-block;border-radius:10px;padding:2px 8px;font-size:10px;font-weight:800;color:#fff;}
+.badge.alta{background:#ba1a1a;}.badge.media{background:#e67e22;}.badge.baja{background:#27ae60;}
+.ftr{background:#f4f6fa;padding:12px 28px;font-size:10px;color:#737781;text-align:center;border-top:1px solid #e2e8f0;}
+</style></head><body>
+<div class="hdr"><div class="hdr-logo">BBVA</div><div class="hdr-title">${esc(docTitle)}</div><div class="hdr-meta">${esc(tri)} &middot; Generado el ${esc(fecha)}</div></div>
+<div class="body">${bodyHtml}</div>
+<div class="ftr">Generado automaticamente por BBVA Analytics &middot; Confidencial</div>
+</body></html>`;
+}
+
+// ─────────────────────────────────────────────────────────────
 //  PANTALLA PRINCIPAL
 // ─────────────────────────────────────────────────────────────
 export default function Dashboard() {
@@ -1120,6 +1200,8 @@ export default function Dashboard() {
   const [expandedDebId, setExpandedDebId]         = useState<number | null>(null);
   const [expandedComercioId, setExpandedComercioId] = useState<number | null>(null);
   const [expandedObjId, setExpandedObjId]         = useState<number | null>(null);
+  const [exportingKpi, setExportingKpi]           = useState<string | null>(null);
+  const [exportingAll, setExportingAll]           = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<string>(
     new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
@@ -1305,6 +1387,146 @@ export default function Dashboard() {
 
   const handleLogout = async () => { await logout(); router.replace('/(auth)/welcome'); };
 
+  const sharePdf = async (html: string) => {
+    const { uri } = await Print.printToFileAsync({ html, base64: false });
+    await Sharing.shareAsync(uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf', dialogTitle: 'Exportar PDF' });
+  };
+
+  const handleExportKpi = async (id: string) => {
+    setExportingKpi(id);
+    try {
+      const fecha = pdfFecha(), tri = trimestre;
+      let body = '';
+      if (id === 'fraude-tendencia') {
+        const items = fraudePorMes.map(d => ({ label: d.año_mes.substring(5), value: d.total_fraudes }));
+        const peakV = fraudePorMes.length ? Math.max(...fraudePorMes.map(d => d.total_fraudes)) : 0;
+        body = `<div class="sec"><div class="sec-title">TENDENCIA MENSUAL DE FRAUDES</div>
+          <div class="chips">
+            <div class="chip"><div class="chip-lbl">Meses analizados</div><div class="chip-val">${fraudePorMes.length}</div></div>
+            <div class="chip"><div class="chip-lbl">Pico máximo</div><div class="chip-val risk">${fmt(peakV)}</div></div>
+            <div class="chip"><div class="chip-lbl">Último mes</div><div class="chip-val">${fmt(fraudePorMes[fraudePorMes.length-1]?.total_fraudes??0)}</div></div>
+          </div>
+          <div class="chart">${pdfLineSvg(items)}</div>
+          ${conclusionFraudes ? pdfConclusion(conclusionFraudes, conclusionFraudesAlert) : ''}
+          ${pdfAcciones(OBJ_CONFIG.porcentajeFraudePotencial.acciones)}
+        </div>`;
+      } else if (id === 'fraude-categoria') {
+        const items = catSlice.map(d => ({ label: d.categoria, value: d.total_fraudes }));
+        body = `<div class="sec"><div class="sec-title">FRAUDE POR CATEGORÍA</div>
+          <div class="chart">${pdfBarsSvg(items,'#ba1a1a')}</div>
+          ${conclusionCat ? pdfConclusion(conclusionCat, true) : ''}
+          ${pdfAcciones(OBJ_CONFIG.porcentajeFraudePotencial.acciones)}
+        </div>`;
+      } else if (id === 'prestamos') {
+        const items = prestamos.map((p: PrestamosPorTipo) => ({ label: p.tipo, value: p.total }));
+        body = `<div class="sec"><div class="sec-title">PRÉSTAMOS POR TIPO</div>
+          <div class="chart">${pdfBarsSvg(items)}</div>
+          ${conclusionPrest ? pdfConclusion(conclusionPrest) : ''}
+          ${pdfAcciones(OBJ_CONFIG.porcentajePrestamosVencidos.acciones)}
+        </div>`;
+      } else if (id === 'saldo-cuentas') {
+        const items = saldoCuentas.map((c: SaldoPorTipoCuenta) => ({ label: c.tipo, value: Number(c.saldo_total) }));
+        const concl = saldoMax && saldoMin && saldoMax.tipo !== saldoMin.tipo
+          ? `La ${saldoMax.tipo} concentra la mayor liquidez del banco.` : '';
+        body = `<div class="sec"><div class="sec-title">SALDO POR TIPO DE CUENTA</div>
+          <div class="chart">${pdfBarsSvg(items,'#1973B8')}</div>
+          ${concl ? pdfConclusion(concl) : ''}
+        </div>`;
+      } else if (id === 'score') {
+        const items = scores.map((sc: ScoreCrediticio) => ({ label: sc.rango, value: sc.total }));
+        body = `<div class="sec"><div class="sec-title">DISTRIBUCIÓN DE SCORE CREDITICIO</div>
+          <div class="chart">${pdfBarsSvg(items,'#7c3aed')}</div>
+          ${conclusionScore ? pdfConclusion(conclusionScore, _scoreAlert) : ''}
+        </div>`;
+      } else if (id === 'cobros') {
+        const items = cobrosExc.map((c: CobrosExcedidos) => ({ label: c.tipo, value: c.total }));
+        body = `<div class="sec"><div class="sec-title">COBROS EXCEDIDOS POR TIPO</div>
+          ${items.length ? `<div class="chart">${pdfBarsSvg(items,'#ba1a1a')}</div>` : '<p style="color:#27ae60;font-weight:600;padding:14px 0;">Sin cobros excedidos registrados</p>'}
+          ${pdfAcciones(OBJ_CONFIG.porcentajeCobrosExcedidos.acciones)}
+        </div>`;
+      } else if (id === 'etl') {
+        const rows = etlResumen ? [
+          { label: 'Transacciones analizadas', val: fmt(etlResumen.total_transacciones) },
+          { label: 'Fraudes detectados',        val: fmt(etlResumen.total_fraudes) },
+          { label: 'Tasa de fraude',            val: `${etlResumen.tasa_fraude_pct?.toFixed(2)}%` },
+          { label: 'Monto total en riesgo',     val: fmtMXN(etlResumen.monto_total_fraude) },
+          { label: 'Monto promedio por fraude', val: fmtMXN(etlResumen.monto_promedio_fraude) },
+          { label: 'Monto maximo de fraude',    val: fmtMXN(etlResumen.monto_maximo_fraude) },
+        ] : [];
+        body = `<div class="sec"><div class="sec-title">ETL PIPELINE — ANÁLISIS DE FRAUDE</div>
+          ${rows.length ? pdfTable(rows) : '<p>Sin datos disponibles</p>'}
+        </div>`;
+      }
+      const titulos: Record<string,string> = {
+        'fraude-tendencia':'Tendencia de Fraudes','fraude-categoria':'Fraude por Categoria',
+        'prestamos':'Prestamos por Tipo','saldo-cuentas':'Saldo por Tipo de Cuenta',
+        'score':'Score Crediticio','cobros':'Cobros Excedidos','etl':'Pipeline ETL',
+      };
+      await sharePdf(buildDocHtml(`KPI: ${titulos[id]??id}`, fecha, tri, body));
+    } catch { Alert.alert('Error','No se pudo generar el PDF. Verifica la conexion.'); }
+    finally { setExportingKpi(null); }
+  };
+
+  const handleExportAll = async () => {
+    setExportingAll(true);
+    try {
+      const fecha  = pdfFecha(), tri = trimestre;
+      const fItems = fraudePorMes.map(d => ({ label: d.año_mes.substring(5), value: d.total_fraudes }));
+      const peakV  = fraudePorMes.length ? Math.max(...fraudePorMes.map(d => d.total_fraudes)) : 0;
+      const saldConcl = saldoMax && saldoMin && saldoMax.tipo !== saldoMin.tipo ? `La ${saldoMax.tipo} concentra la mayor liquidez del banco.` : '';
+      const etlRows = etlResumen ? [
+        { label:'Transacciones analizadas', val:fmt(etlResumen.total_transacciones) },
+        { label:'Fraudes detectados',        val:fmt(etlResumen.total_fraudes) },
+        { label:'Tasa de fraude',            val:`${etlResumen.tasa_fraude_pct?.toFixed(2)}%` },
+        { label:'Monto total en riesgo',     val:fmtMXN(etlResumen.monto_total_fraude) },
+        { label:'Monto promedio por fraude', val:fmtMXN(etlResumen.monto_promedio_fraude) },
+      ] : [];
+      const body = `
+        <div class="sec"><div class="sec-title">TENDENCIA MENSUAL DE FRAUDES</div>
+          <div class="chips">
+            <div class="chip"><div class="chip-lbl">Meses analizados</div><div class="chip-val">${fraudePorMes.length}</div></div>
+            <div class="chip"><div class="chip-lbl">Pico máximo</div><div class="chip-val risk">${fmt(peakV)}</div></div>
+          </div>
+          <div class="chart">${pdfLineSvg(fItems)}</div>
+          ${conclusionFraudes ? pdfConclusion(conclusionFraudes, conclusionFraudesAlert) : ''}
+        </div>
+        <div class="sec"><div class="sec-title">FRAUDE POR CATEGORÍA</div>
+          <div class="chart">${pdfBarsSvg(catSlice.map(d=>({label:d.categoria,value:d.total_fraudes})),'#ba1a1a')}</div>
+          ${conclusionCat ? pdfConclusion(conclusionCat, true) : ''}
+        </div>
+        <div class="sec"><div class="sec-title">PRÉSTAMOS POR TIPO</div>
+          <div class="chart">${pdfBarsSvg(prestamos.map((p:PrestamosPorTipo)=>({label:p.tipo,value:p.total})))}</div>
+          ${conclusionPrest ? pdfConclusion(conclusionPrest) : ''}
+        </div>
+        <div class="sec"><div class="sec-title">SALDO POR TIPO DE CUENTA</div>
+          <div class="chart">${pdfBarsSvg(saldoCuentas.map((c:SaldoPorTipoCuenta)=>({label:c.tipo,value:Number(c.saldo_total)})),'#1973B8')}</div>
+          ${saldConcl ? pdfConclusion(saldConcl) : ''}
+        </div>
+        <div class="sec"><div class="sec-title">SCORE CREDITICIO</div>
+          <div class="chart">${pdfBarsSvg(scores.map((sc:ScoreCrediticio)=>({label:sc.rango,value:sc.total})),'#7c3aed')}</div>
+          ${conclusionScore ? pdfConclusion(conclusionScore, _scoreAlert) : ''}
+        </div>
+        <div class="sec"><div class="sec-title">COBROS EXCEDIDOS</div>
+          ${cobrosExc.length ? `<div class="chart">${pdfBarsSvg(cobrosExc.map((c:CobrosExcedidos)=>({label:c.tipo,value:c.total})),'#ba1a1a')}</div>` : '<p style="color:#27ae60;font-weight:600;padding:14px 0;">Sin cobros excedidos registrados</p>'}
+        </div>
+        <div class="sec"><div class="sec-title">ETL PIPELINE</div>
+          ${etlRows.length ? pdfTable(etlRows) : '<p>Sin datos</p>'}
+        </div>
+        <div class="sec"><div class="sec-title">DEBILIDADES Y OBJETIVOS DEL TRIMESTRE</div>
+          ${soluciones.length === 0 ? '<p style="color:#27ae60;font-weight:600;">Sin debilidades criticas detectadas.</p>'
+            : soluciones.map(sol => `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;margin-bottom:10px;">
+                <span class="badge ${sol.prioridad.toLowerCase()}">${esc(sol.prioridad.toUpperCase())}</span>
+                <div style="font-size:13px;font-weight:700;margin:8px 0 4px;">${esc(sol.problema)}</div>
+                <div style="font-size:12px;color:#475569;">${esc(sol.solucion??'')}</div>
+              </div>`).join('')}
+          ${objetivosGenerados.length > 0 ? `<div style="margin-top:16px;font-size:11px;font-weight:800;color:#737781;letter-spacing:1.5px;margin-bottom:8px;">OBJETIVOS ACTIVOS</div>` +
+            objetivosGenerados.map(obj => `<div style="font-size:12px;margin-bottom:6px;"><strong>${esc(obj.titulo)}</strong> — Actual: ${obj.valorActual.toFixed(1)}% → Meta: ${obj.valorMeta}%</div>`).join('') : ''}
+        </div>`;
+      await sharePdf(buildDocHtml('Reporte Ejecutivo de KPIs', fecha, tri, body));
+    } catch { Alert.alert('Error','No se pudo generar el reporte. Verifica la conexion.'); }
+    finally { setExportingAll(false); }
+  };
+
   // ─────────────────────────────────────────────────────────────
   return (
     <View style={[s.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -1484,8 +1706,15 @@ export default function Dashboard() {
             <Text style={s.sectionHeader}>TRANSACCIONES</Text>
 
             <View style={s.kpiDetailCard}>
-              <Text style={s.cardTitle}>Tendencia mensual de fraudes</Text>
-              <Text style={s.cardSubtitle}>{fraudePorMes.length} meses</Text>
+              <View style={s.kpiCardHdr}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.cardTitle}>Tendencia mensual de fraudes</Text>
+                  <Text style={s.cardSubtitle}>{fraudePorMes.length} meses</Text>
+                </View>
+                <TouchableOpacity style={s.kpiExportBtn} onPress={() => handleExportKpi('fraude-tendencia')} disabled={exportingKpi !== null || exportingAll}>
+                  {exportingKpi === 'fraude-tendencia' ? <ActivityIndicator size="small" color="#004481" /> : <Ionicons name="download-outline" size={16} color="#004481" />}
+                </TouchableOpacity>
+              </View>
               {fraudePorMes.length > 0
                 ? <InteractiveLineChart
                     data={fraudePorMes.map((d: FraudePorMes) => ({
@@ -1507,8 +1736,15 @@ export default function Dashboard() {
             </View>
 
             <View style={s.kpiDetailCard}>
-              <Text style={s.cardTitle}>Fraude por categoría</Text>
-              <Text style={s.cardSubtitle}>Barra roja = categoría más afectada · Toca para ver detalle</Text>
+              <View style={s.kpiCardHdr}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.cardTitle}>Fraude por categoría</Text>
+                  <Text style={s.cardSubtitle}>Barra roja = categoría más afectada · Toca para ver detalle</Text>
+                </View>
+                <TouchableOpacity style={s.kpiExportBtn} onPress={() => handleExportKpi('fraude-categoria')} disabled={exportingKpi !== null || exportingAll}>
+                  {exportingKpi === 'fraude-categoria' ? <ActivityIndicator size="small" color="#004481" /> : <Ionicons name="download-outline" size={16} color="#004481" />}
+                </TouchableOpacity>
+              </View>
               {catSlice.length > 0
                 ? <>
                     <AnimatedBarChart
@@ -1544,8 +1780,12 @@ export default function Dashboard() {
 
             <Text style={s.sectionHeader}>PRÉSTAMOS</Text>
             <View style={s.kpiDetailCard}>
-              <Text style={s.cardTitle}>Préstamos por tipo</Text>
-              <Text style={s.cardSubtitle}>Toca para ver detalle</Text>
+              <View style={s.kpiCardHdr}>
+                <View style={{ flex: 1 }}><Text style={s.cardTitle}>Préstamos por tipo</Text><Text style={s.cardSubtitle}>Toca para ver detalle</Text></View>
+                <TouchableOpacity style={s.kpiExportBtn} onPress={() => handleExportKpi('prestamos')} disabled={exportingKpi !== null || exportingAll}>
+                  {exportingKpi === 'prestamos' ? <ActivityIndicator size="small" color="#004481" /> : <Ionicons name="download-outline" size={16} color="#004481" />}
+                </TouchableOpacity>
+              </View>
               {loadPrest
                 ? <SkeletonCard lines={4} />
                 : <>
@@ -1564,7 +1804,12 @@ export default function Dashboard() {
 
             <Text style={s.sectionHeader}>CUENTAS</Text>
             <View style={s.kpiDetailCard}>
-              <Text style={s.cardTitle}>Saldo por tipo de cuenta</Text>
+              <View style={s.kpiCardHdr}>
+                <Text style={[s.cardTitle, { flex: 1 }]}>Saldo por tipo de cuenta</Text>
+                <TouchableOpacity style={s.kpiExportBtn} onPress={() => handleExportKpi('saldo-cuentas')} disabled={exportingKpi !== null || exportingAll}>
+                  {exportingKpi === 'saldo-cuentas' ? <ActivityIndicator size="small" color="#004481" /> : <Ionicons name="download-outline" size={16} color="#004481" />}
+                </TouchableOpacity>
+              </View>
               {loadSaldo
                 ? <SkeletonCard lines={3} />
                 : <>
@@ -1585,7 +1830,12 @@ export default function Dashboard() {
             </View>
 
             <View style={s.kpiDetailCard}>
-              <Text style={s.cardTitle}>Distribución de Score Crediticio</Text>
+              <View style={s.kpiCardHdr}>
+                <Text style={[s.cardTitle, { flex: 1 }]}>Distribución de Score Crediticio</Text>
+                <TouchableOpacity style={s.kpiExportBtn} onPress={() => handleExportKpi('score')} disabled={exportingKpi !== null || exportingAll}>
+                  {exportingKpi === 'score' ? <ActivityIndicator size="small" color="#004481" /> : <Ionicons name="download-outline" size={16} color="#004481" />}
+                </TouchableOpacity>
+              </View>
               {loadScore
                 ? <SkeletonCard lines={4} />
                 : <>
@@ -1605,7 +1855,12 @@ export default function Dashboard() {
 
             <Text style={s.sectionHeader}>COMISIONES</Text>
             <View style={s.kpiDetailCard}>
-              <Text style={s.cardTitle}>Cobros excedidos por tipo</Text>
+              <View style={s.kpiCardHdr}>
+                <Text style={[s.cardTitle, { flex: 1 }]}>Cobros excedidos por tipo</Text>
+                <TouchableOpacity style={s.kpiExportBtn} onPress={() => handleExportKpi('cobros')} disabled={exportingKpi !== null || exportingAll}>
+                  {exportingKpi === 'cobros' ? <ActivityIndicator size="small" color="#004481" /> : <Ionicons name="download-outline" size={16} color="#004481" />}
+                </TouchableOpacity>
+              </View>
               {loadCob
                 ? <SkeletonCard lines={3} />
                 : cobrosExc.length > 0
@@ -1621,7 +1876,12 @@ export default function Dashboard() {
 
             <Text style={s.sectionHeader}>ETL PIPELINE</Text>
             <View style={s.kpiDetailCard}>
-              <Text style={s.cardTitle}>Resumen análisis de fraude</Text>
+              <View style={s.kpiCardHdr}>
+                <Text style={[s.cardTitle, { flex: 1 }]}>Resumen análisis de fraude</Text>
+                <TouchableOpacity style={s.kpiExportBtn} onPress={() => handleExportKpi('etl')} disabled={exportingKpi !== null || exportingAll}>
+                  {exportingKpi === 'etl' ? <ActivityIndicator size="small" color="#004481" /> : <Ionicons name="download-outline" size={16} color="#004481" />}
+                </TouchableOpacity>
+              </View>
               {etlResumen ? (
                 <View style={{ gap: 10, marginTop: 8 }}>
                   {[
@@ -1682,6 +1942,13 @@ export default function Dashboard() {
 
             <View style={{ height: 40 }} />
           </ScrollView>
+        )}
+
+        {activeTab === 'KPIs' && (
+          <TouchableOpacity style={s.floatingExportBtn} onPress={handleExportAll}
+            disabled={exportingKpi !== null || exportingAll} activeOpacity={0.85}>
+            <Ionicons name="document-outline" size={24} color="#fff" />
+          </TouchableOpacity>
         )}
 
         {/* ══ OBJETIVOS ═══════════════════════════════════════════ */}
@@ -1799,6 +2066,16 @@ export default function Dashboard() {
           </ScrollView>
         )}
       </View>
+
+      <Modal visible={exportingKpi !== null || exportingAll} transparent animationType="fade">
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.45)' }}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 20, padding: 28, alignItems: 'center', gap: 14, elevation: 10, minWidth: 200 }}>
+            <ActivityIndicator color="#004481" size="large" />
+            <Text style={{ fontSize: 14, fontWeight: '700', color: '#1a1c1c' }}>Generando reporte...</Text>
+            <Text style={{ fontSize: 11, color: '#737781', textAlign: 'center' }}>Esto puede tardar unos segundos</Text>
+          </View>
+        </View>
+      </Modal>
 
       {/* ── Tab Bar ── */}
       <View style={s.tabBar}>
@@ -1967,4 +2244,10 @@ const s = StyleSheet.create({
   objTrimestreIcon:  { width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff',
                        alignItems: 'center', justifyContent: 'center', elevation: 2 },
   objTrimestreText:  { fontSize: 17, fontWeight: '800', color: '#004481', marginTop: 2 },
+  kpiCardHdr:        { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 2 },
+  kpiExportBtn:      { width: 32, height: 32, borderRadius: 16, backgroundColor: '#e8effa',
+                       alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginLeft: 8 },
+  floatingExportBtn: { position: 'absolute', right: 16, bottom: 16, width: 52, height: 52,
+                       borderRadius: 26, backgroundColor: '#004990', alignItems: 'center',
+                       justifyContent: 'center', elevation: 6, zIndex: 10 },
 });
