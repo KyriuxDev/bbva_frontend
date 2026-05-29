@@ -1498,12 +1498,19 @@ export default function Dashboard() {
   };
 
   const handleExportAll = async () => {
+    // Validar que los datos críticos ya cargaron
+    if (!etlResumen || !debilidadesData || fraudePorMes.length === 0) {
+      Alert.alert('Espera', 'Los datos aún están cargando. Intenta en unos segundos.');
+      return;
+    }
+
     setExportingAll(true);
     try {
       const fecha  = pdfFecha(), tri = trimestre;
       const fItems = fraudePorMes.map(d => ({ label: d.año_mes.substring(5), value: d.total_fraudes }));
-      const peakV  = fraudePorMes.length ? Math.max(...fraudePorMes.map(d => d.total_fraudes)) : 0;
-      const saldConcl = saldoMax && saldoMin && saldoMax.tipo !== saldoMin.tipo ? `La ${saldoMax.tipo} concentra la mayor liquidez del banco.` : '';
+      const peakV  = Math.max(...fraudePorMes.map(d => d.total_fraudes));
+      const saldConcl = saldoMax && saldoMin && saldoMax.tipo !== saldoMin.tipo
+        ? `La ${saldoMax.tipo} concentra la mayor liquidez del banco.` : '';
       const etlRows = etlResumen ? [
         { label:'Transacciones analizadas', val:fmt(etlResumen.total_transacciones) },
         { label:'Fraudes detectados',        val:fmt(etlResumen.total_fraudes) },
@@ -1511,6 +1518,7 @@ export default function Dashboard() {
         { label:'Monto total en riesgo',     val:fmtMXN(etlResumen.monto_total_fraude) },
         { label:'Monto promedio por fraude', val:fmtMXN(etlResumen.monto_promedio_fraude) },
       ] : [];
+
       const body = `
         <div class="sec"><div class="sec-title">TENDENCIA MENSUAL DE FRAUDES</div>
           <div class="chips">
@@ -1543,18 +1551,44 @@ export default function Dashboard() {
           ${etlRows.length ? pdfTable(etlRows) : '<p>Sin datos</p>'}
         </div>
         <div class="sec"><div class="sec-title">DEBILIDADES Y OBJETIVOS DEL TRIMESTRE</div>
-          ${soluciones.length === 0 ? '<p style="color:#27ae60;font-weight:600;">Sin debilidades criticas detectadas.</p>'
-            : soluciones.map(sol => `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;margin-bottom:10px;">
+          ${soluciones.length === 0
+            ? '<p style="color:#27ae60;font-weight:600;">Sin debilidades criticas detectadas.</p>'
+            : soluciones.map(sol => `
+              <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;margin-bottom:10px;">
                 <span class="badge ${sol.prioridad.toLowerCase()}">${esc(sol.prioridad.toUpperCase())}</span>
                 <div style="font-size:13px;font-weight:700;margin:8px 0 4px;">${esc(sol.problema)}</div>
                 <div style="font-size:12px;color:#475569;">${esc(sol.solucion??'')}</div>
               </div>`).join('')}
-          ${objetivosGenerados.length > 0 ? `<div style="margin-top:16px;font-size:11px;font-weight:800;color:#737781;letter-spacing:1.5px;margin-bottom:8px;">OBJETIVOS ACTIVOS</div>` +
-            objetivosGenerados.map(obj => `<div style="font-size:12px;margin-bottom:6px;"><strong>${esc(obj.titulo)}</strong> — Actual: ${obj.valorActual.toFixed(1)}% → Meta: ${obj.valorMeta}%</div>`).join('') : ''}
+          ${objetivosGenerados.length > 0
+            ? `<div style="margin-top:16px;font-size:11px;font-weight:800;color:#737781;letter-spacing:1.5px;margin-bottom:8px;">OBJETIVOS ACTIVOS</div>` +
+              objetivosGenerados.map(obj =>
+                `<div style="font-size:12px;margin-bottom:6px;">
+                  <strong>${esc(obj.titulo)}</strong> — Actual: ${obj.valorActual.toFixed(1)}% → Meta: ${obj.valorMeta}%
+                </div>`).join('')
+            : ''}
         </div>`;
-      await sharePdf(buildDocHtml('Reporte Ejecutivo de KPIs', fecha, tri, body));
-    } catch { Alert.alert('Error','No se pudo generar el reporte. Verifica la conexion.'); }
-    finally { setExportingAll(false); }
+
+      const html = buildDocHtml('Reporte Ejecutivo de KPIs', fecha, tri, body);
+
+      // Timeout de 25 segundos para Print.printToFileAsync
+      const { uri } = await Promise.race([
+        Print.printToFileAsync({ html, base64: false }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('El reporte tardó demasiado en generarse')), 25000)
+        ),
+      ]);
+
+      await Sharing.shareAsync(uri, {
+        mimeType: 'application/pdf',
+        UTI: 'com.adobe.pdf',
+        dialogTitle: 'Exportar PDF',
+      });
+
+    } catch (err: any) {
+      Alert.alert('Error', err?.message ?? 'No se pudo generar el reporte. Verifica la conexión.');
+    } finally {
+      setExportingAll(false);
+    }
   };
 
   // ─────────────────────────────────────────────────────────────
