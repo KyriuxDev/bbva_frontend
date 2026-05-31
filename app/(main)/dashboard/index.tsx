@@ -98,7 +98,14 @@ export default function Dashboard() {
   const { data: notiCanal         = [], isLoading: loadNotiCan,  refetch: rNotiCan   } = useQuery({ queryKey: ['kpis-noti-canal'],     queryFn: dashboardService.getNotificacionesPorCanal,   staleTime: STALE });
   const { data: cuentasSucursal   = [], isLoading: loadSucursal, refetch: rSucursal  } = useQuery({ queryKey: ['kpis-sucursales'],     queryFn: dashboardService.getCuentasPorSucursal,       staleTime: STALE });
   const { data: nominaRes,             isLoading: loadNomina,    refetch: rNomina    } = useQuery({ queryKey: ['kpis-nomina'],         queryFn: dashboardService.getNominaResumen,            staleTime: STALE });
-
+  const { data: utilizacionCredito      = [], isLoading: loadUtilCred,  refetch: rUtilCred  } = useQuery({ queryKey: ['kpis-util-credito'],      queryFn: dashboardService.getUtilizacionCredito,        staleTime: STALE });
+  const { data: utilizacionResumen,                  isLoading: loadUtilRes,   refetch: rUtilRes   } = useQuery({ queryKey: ['kpis-util-credito-res'],  queryFn: dashboardService.getUtilizacionCreditoResumen, staleTime: STALE });
+  const { data: morosidadTarjetas       = [], isLoading: loadMorosidad, refetch: rMorosidad } = useQuery({ queryKey: ['kpis-morosidad'],         queryFn: dashboardService.getMorosidadTarjetas,          staleTime: STALE });
+  const { data: morosidadResumen,                    isLoading: loadMorRes,    refetch: rMorRes    } = useQuery({ queryKey: ['kpis-morosidad-res'],     queryFn: dashboardService.getMorosidadTarjetasResumen,  staleTime: STALE });
+  const { data: tasasInteres            = [], isLoading: loadTasas,     refetch: rTasas     } = useQuery({ queryKey: ['kpis-tasas'],             queryFn: dashboardService.getTasaInteresPrestamos,       staleTime: STALE });
+  const { data: metasEstatus            = [], isLoading: loadMetasEst,  refetch: rMetasEst  } = useQuery({ queryKey: ['kpis-metas-estatus'],     queryFn: dashboardService.getMetasAhorroPorEstatus,     staleTime: STALE });
+  const { data: metasProgreso,                       isLoading: loadMetasProg, refetch: rMetasProg } = useQuery({ queryKey: ['kpis-metas-progreso'],    queryFn: dashboardService.getMetasAhorroProgreso,       staleTime: STALE });
+  
   // ── Pull-to-refresh ──────────────────────────────────────────
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -197,6 +204,49 @@ export default function Dashboard() {
     if (!isNaN(firstNum) && firstNum < 600)
       return 'El segmento más numeroso muestra un score que requiere atención. Reforzar el análisis crediticio en nuevas solicitudes.';
     return `El rango ${scoreMax.rango} agrupa al mayor número de clientes.`;
+  })();
+
+    const conclusionUtilizacion = (() => {
+    if (!utilizacionResumen) return null;
+    const pct = utilizacionResumen.utilizacion_global;
+    if (pct > 70) return `Utilización global del ${pct.toFixed(1)}%, por encima del 70%. Riesgo elevado de incumplimiento; revisar límites y alertas preventivas.`;
+    if (pct > 50) return `Utilización del ${pct.toFixed(1)}%. Nivel moderado; monitorear clientes con uso superior al 80% de su límite individual.`;
+    return `Utilización promedio del ${pct.toFixed(1)}%. Cartera de tarjetas con capacidad crediticia saludable.`;
+  })();
+  const esAlertaUtilizacion = (utilizacionResumen?.utilizacion_global ?? 0) > 70;
+  
+  const conclusionMorosidad = (() => {
+    if (!morosidadResumen) return null;
+    const pct = morosidadResumen.tasa_morosidad;
+    if (pct > 40) return `El ${pct.toFixed(1)}% de las tarjetas están bloqueadas. Nivel crítico; revisar políticas de otorgamiento y activar estrategias de recuperación.`;
+    if (pct > 30) return `El ${pct.toFixed(1)}% de las tarjetas activas están bloqueadas por impago. Se recomienda campaña de regularización y revisión de perfiles de riesgo.`;
+    return `El ${pct.toFixed(1)}% de las tarjetas están bloqueadas por impago. Las tarjetas activas operan con normalidad.`;
+  })();
+  const esAlertaMorosidad = (morosidadResumen?.tasa_morosidad ?? 0) > 30;
+  
+  const conclusionTasas = (() => {
+    if (!tasasInteres.length) return null;
+    const maxTasa = tasasInteres.reduce((m, t) => t.tasa_promedio > m.tasa_promedio ? t : m);
+    const minTasa = tasasInteres.reduce((m, t) => t.tasa_promedio < m.tasa_promedio ? t : m);
+    if (maxTasa.tipo_prestamo === minTasa.tipo_prestamo) return null;
+    const diff = maxTasa.tasa_promedio - minTasa.tasa_promedio;
+    return diff > 5
+      ? `${maxTasa.tipo_prestamo} tiene la tasa más alta (${maxTasa.tasa_promedio.toFixed(1)}%) y ${minTasa.tipo_prestamo} la más baja (${minTasa.tasa_promedio.toFixed(1)}%). Revisar pricing para mayor competitividad.`
+      : `Las tasas están relativamente niveladas entre productos. ${maxTasa.tipo_prestamo} lidera en costo (${maxTasa.tasa_promedio.toFixed(1)}%).`;
+  })();
+  
+  const conclusionMetas = (() => {
+    const completadas = metasEstatus.find(m => m.estatus?.toLowerCase().includes('complet'));
+    const fallidas    = metasEstatus.find(m => m.estatus?.toLowerCase().includes('fall'));
+    if (!completadas) return null;
+    if (fallidas && fallidas.porcentaje > completadas.porcentaje)
+      return `Las metas fallidas (${fallidas.porcentaje.toFixed(1)}%) superan a las completadas (${completadas.porcentaje.toFixed(1)}%). Revisar montos objetivo y activar recordatorios automáticos.`;
+    return `El ${completadas.porcentaje.toFixed(1)}% de las metas fueron completadas exitosamente. Buen indicador de engagement financiero.`;
+  })();
+  const esAlertaMetas = (() => {
+    const completadas = metasEstatus.find(m => m.estatus?.toLowerCase().includes('complet'));
+    const fallidas    = metasEstatus.find(m => m.estatus?.toLowerCase().includes('fall'));
+    return !!(fallidas && completadas && fallidas.porcentaje > completadas.porcentaje);
   })();
 
   // ── Estado global ────────────────────────────────────────────
@@ -751,6 +801,338 @@ export default function Dashboard() {
                     <Text style={{ color: '#00a278', fontWeight: '600' }}>Sin cobros excedidos</Text>
                   </View>}
             </View>
+
+            {/* ── CRÉDITO — TARJETAS ── */}
+            <Text style={s.sectionHeader}>CRÉDITO — TARJETAS</Text>
+
+            {/* Utilización del crédito */}
+            <View style={s.kpiDetailCard}>
+              <View style={s.kpiCardHdr}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.cardTitle}>Utilización promedio del crédito</Text>
+                  <Text style={s.cardSubtitle}>
+                    {utilizacionResumen
+                      ? `${utilizacionResumen.utilizacion_global.toFixed(1)}% global · ${fmt(utilizacionResumen.total_tarjetas)} tarjetas activas`
+                      : 'Cargando...'}
+                  </Text>
+                </View>
+              </View>
+
+              {loadUtilRes ? (
+                <SkeletonCard lines={2} height={80} />
+              ) : utilizacionResumen ? (
+                <View style={{ gap: 12, marginTop: 8 }}>
+                  <View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <Text style={{ fontSize: 12, color: '#5d5f5f' }}>Uso global del límite</Text>
+                      <Text style={{
+                        fontSize: 14, fontWeight: '800',
+                        color: utilizacionResumen.utilizacion_global > 70 ? '#ba1a1a'
+                             : utilizacionResumen.utilizacion_global > 50 ? '#fbbd08' : '#00a278',
+                      }}>
+                        {`${utilizacionResumen.utilizacion_global.toFixed(1)}%`}
+                      </Text>
+                    </View>
+                    <View style={{ height: 10, backgroundColor: '#e8effa', borderRadius: 5, overflow: 'hidden' }}>
+                      <View style={{
+                        width: `${Math.min(utilizacionResumen.utilizacion_global, 100)}%`,
+                        height: '100%', borderRadius: 5,
+                        backgroundColor: utilizacionResumen.utilizacion_global > 70 ? '#ba1a1a'
+                                       : utilizacionResumen.utilizacion_global > 50 ? '#fbbd08' : '#00a278',
+                      }} />
+                    </View>
+                  </View>
+                  <View style={s.sideBySideRow}>
+                    <View style={[s.halfCard, { alignItems: 'center' }]}>
+                      <Text style={{ fontSize: 18, fontWeight: '800', color: '#004481' }}>
+                        {hideAmounts ? '•••••' : fmtMXN(utilizacionResumen.saldo_total)}
+                      </Text>
+                      <Text style={{ fontSize: 11, color: '#737781', marginTop: 2, textAlign: 'center' }}>
+                        {'Saldo total usado'}
+                      </Text>
+                    </View>
+                    <View style={[s.halfCard, { alignItems: 'center' }]}>
+                      <Text style={{ fontSize: 18, fontWeight: '800', color: '#00a278' }}>
+                        {hideAmounts ? '•••••' : fmtMXN(utilizacionResumen.limite_total)}
+                      </Text>
+                      <Text style={{ fontSize: 11, color: '#737781', marginTop: 2, textAlign: 'center' }}>
+                        {'Límite total otorgado'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              ) : null}
+
+              {!loadUtilCred && utilizacionCredito.length > 0 && (
+                <>
+                  <Text style={[s.cardSubtitle, { marginTop: 12, marginBottom: 4 }]}>
+                    {'Por tipo de tarjeta'}
+                  </Text>
+                  <AnimatedBarChart
+                    data={utilizacionCredito.map(u => ({ label: u.tipo_tarjeta, value: u.utilizacion_promedio }))}
+                    colorFn={(i) => {
+                      const pct = utilizacionCredito[i]?.utilizacion_promedio ?? 0;
+                      return pct > 70 ? '#ba1a1a' : pct > 50 ? '#fbbd08' : '#00a278';
+                    }}
+                    valueFormatter={(v) => `${v.toFixed(1)}%`}
+                  />
+                </>
+              )}
+
+              {conclusionUtilizacion && (
+                <View style={[s.conclusionBox, esAlertaUtilizacion && s.conclusionBoxAlert]}>
+                  <Ionicons
+                    name={esAlertaUtilizacion ? 'warning-outline' : 'bulb-outline'}
+                    size={15}
+                    color={esAlertaUtilizacion ? '#ba1a1a' : '#004481'}
+                    style={{ flexShrink: 0, marginTop: 1 }}
+                  />
+                  <Text style={s.conclusionTxt}>{conclusionUtilizacion}</Text>
+                </View>
+              )}
+            </View>
+
+            {/* Morosidad en tarjetas */}
+            <View style={s.kpiDetailCard}>
+              <View style={s.kpiCardHdr}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.cardTitle}>{'Morosidad en tarjetas de crédito'}</Text>
+                  <Text style={s.cardSubtitle}>
+                    {morosidadResumen
+                      ? `${morosidadResumen.tasa_morosidad.toFixed(1)}% bloqueadas por impago · ${fmt(morosidadResumen.total_morosas)} tarjetas`
+                      : 'Cargando...'}
+                  </Text>
+                </View>
+              </View>
+
+              {!loadMorRes && morosidadResumen && (
+                <View style={s.sideBySideRow}>
+                  <View style={[s.halfCard, { alignItems: 'center', backgroundColor: '#e6f7f0', borderColor: '#00a27830' }]}>
+                    <Text style={{ fontSize: 22, fontWeight: '800', color: '#00a278' }}>
+                      {fmt(morosidadResumen.total_activas - morosidadResumen.total_morosas)}
+                    </Text>
+                    <Text style={{ fontSize: 11, color: '#00a278', marginTop: 2, fontWeight: '600' }}>
+                      {'Al corriente'}
+                    </Text>
+                  </View>
+                  <View style={[s.halfCard, { alignItems: 'center', backgroundColor: '#fbebeb', borderColor: '#ba1a1a30' }]}>
+                    <Text style={{ fontSize: 22, fontWeight: '800', color: '#ba1a1a' }}>
+                      {fmt(morosidadResumen.total_morosas)}
+                    </Text>
+                    <Text style={{ fontSize: 11, color: '#ba1a1a', marginTop: 2, fontWeight: '600' }}>
+                      {'Bloqueadas'}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {loadMorosidad ? <SkeletonCard lines={4} /> : morosidadTarjetas.length > 0 && (
+                <>
+                  <Text style={[s.cardSubtitle, { marginBottom: 4 }]}>
+                    {'Tarjetas bloqueadas por tipo'}
+                  </Text>
+                  <AnimatedBarChart
+                    data={morosidadTarjetas.map(m => ({ label: m.tipo_tarjeta, value: m.tasa_morosidad }))}
+                    colorFn={(i) => {
+                      const pct = morosidadTarjetas[i]?.tasa_morosidad ?? 0;
+                      return pct > 10 ? '#ba1a1a' : pct > 5 ? '#fbbd08' : '#00a278';
+                    }}
+                    valueFormatter={(v) => `${v.toFixed(1)}%`}
+                  />
+                </>
+              )}
+
+              {conclusionMorosidad && (
+                <View style={[s.conclusionBox, esAlertaMorosidad && s.conclusionBoxAlert]}>
+                  <Ionicons
+                    name={esAlertaMorosidad ? 'warning-outline' : 'checkmark-circle-outline'}
+                    size={15}
+                    color={esAlertaMorosidad ? '#ba1a1a' : '#004481'}
+                    style={{ flexShrink: 0, marginTop: 1 }}
+                  />
+                  <Text style={s.conclusionTxt}>{conclusionMorosidad}</Text>
+                </View>
+              )}
+            </View>
+
+            {/* ── PRÉSTAMOS — PRICING ── */}
+            <Text style={s.sectionHeader}>{'PRÉSTAMOS — PRICING'}</Text>
+            <View style={s.kpiDetailCard}>
+              <Text style={s.cardTitle}>{'Tasa de interés promedio por tipo'}</Text>
+              <Text style={s.cardSubtitle}>{'Solo préstamos vigentes · % anual'}</Text>
+
+              {loadTasas ? <SkeletonCard lines={4} /> : tasasInteres.length > 0 ? (
+                <>
+                  <View style={{ gap: 0, marginTop: 10 }}>
+                    <View style={{
+                      flexDirection: 'row', paddingBottom: 6,
+                      borderBottomWidth: 2, borderBottomColor: '#e8effa',
+                    }}>
+                      <Text style={{ flex: 2, fontSize: 10, fontWeight: '700', color: '#737781' }}>{'TIPO'}</Text>
+                      <Text style={{ flex: 1, fontSize: 10, fontWeight: '700', color: '#737781', textAlign: 'right' }}>{'PROM.'}</Text>
+                      <Text style={{ flex: 1, fontSize: 10, fontWeight: '700', color: '#00a278', textAlign: 'right' }}>{'MÍN'}</Text>
+                      <Text style={{ flex: 1, fontSize: 10, fontWeight: '700', color: '#ba1a1a', textAlign: 'right' }}>{'MÁX'}</Text>
+                    </View>
+                    {tasasInteres.map((t, i) => (
+                      <View key={i} style={{
+                        flexDirection: 'row', paddingVertical: 8,
+                        borderBottomWidth: 1, borderBottomColor: '#f0f2f5',
+                        backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff',
+                      }}>
+                        <Text style={{ flex: 2, fontSize: 12, color: '#1a1c1c', fontWeight: '600' }} numberOfLines={1}>
+                          {t.tipo_prestamo}
+                        </Text>
+                        <Text style={{ flex: 1, fontSize: 13, fontWeight: '800', color: '#004481', textAlign: 'right' }}>
+                          {`${t.tasa_promedio.toFixed(1)}%`}
+                        </Text>
+                        <Text style={{ flex: 1, fontSize: 11, color: '#00a278', textAlign: 'right' }}>
+                          {`${t.tasa_minima.toFixed(1)}%`}
+                        </Text>
+                        <Text style={{ flex: 1, fontSize: 11, color: '#ba1a1a', textAlign: 'right' }}>
+                          {`${t.tasa_maxima.toFixed(1)}%`}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                  <Text style={[s.cardSubtitle, { marginTop: 14, marginBottom: 4 }]}>
+                    {'Tasa promedio por producto'}
+                  </Text>
+                  <AnimatedBarChart
+                    data={tasasInteres.map(t => ({ label: t.tipo_prestamo, value: t.tasa_promedio }))}
+                    colorFn={() => '#7c3aed'}
+                    valueFormatter={(v) => `${v.toFixed(1)}%`}
+                  />
+                  {conclusionTasas && (
+                    <View style={s.conclusionBox}>
+                      <Ionicons
+                        name="trending-up-outline"
+                        size={15}
+                        color="#004481"
+                        style={{ flexShrink: 0, marginTop: 1 }}
+                      />
+                      <Text style={s.conclusionTxt}>{conclusionTasas}</Text>
+                    </View>
+                  )}
+                </>
+              ) : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginVertical: 16 }}>
+                  <Ionicons name="information-circle-outline" size={16} color="#aaa" />
+                  <Text style={{ color: '#aaa', fontWeight: '600' }}>{'Sin datos de tasas'}</Text>
+                </View>
+              )}
+            </View>
+
+            {/* ── METAS DE AHORRO ── */}
+            <Text style={s.sectionHeader}>{'METAS DE AHORRO'}</Text>
+            <View style={s.kpiDetailCard}>
+              <Text style={s.cardTitle}>{'Distribución de metas por estatus'}</Text>
+              <Text style={s.cardSubtitle}>{'Completadas, activas, fallidas y canceladas'}</Text>
+
+              {loadMetasEst ? <SkeletonCard lines={3} /> : metasEstatus.length > 0 ? (
+                <>
+                  <View style={[s.sideBySideRow, { flexWrap: 'wrap', marginTop: 10 }]}>
+                    {metasEstatus.slice(0, 4).map((m, i) => {
+                      const esCompletada = m.estatus?.toLowerCase().includes('complet');
+                      const esFallida    = m.estatus?.toLowerCase().includes('fall');
+                      const color = esCompletada ? '#00a278' : esFallida ? '#ba1a1a' : '#004481';
+                      const bg    = esCompletada ? '#e6f7f0'  : esFallida ? '#fbebeb'  : '#e8effa';
+                      return (
+                        <View key={i} style={[s.halfCard, {
+                          alignItems: 'center', backgroundColor: bg,
+                          borderColor: color + '30', marginBottom: 8,
+                        }]}>
+                          <Text style={{ fontSize: 22, fontWeight: '800', color }}>
+                            {`${m.porcentaje.toFixed(1)}%`}
+                          </Text>
+                          <Text style={{ fontSize: 11, fontWeight: '700', color, marginTop: 2, textAlign: 'center' }}>
+                            {m.estatus}
+                          </Text>
+                          <Text style={{ fontSize: 10, color: '#737781', marginTop: 1 }}>
+                            {`${fmt(m.total)} metas`}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+
+                  <DonutChart
+                    segments={metasEstatus.map((m, i) => {
+                      const esCompletada = m.estatus?.toLowerCase().includes('complet');
+                      const esFallida    = m.estatus?.toLowerCase().includes('fall');
+                      return {
+                        label:      m.estatus,
+                        percentage: Math.round(m.porcentaje * 10) / 10,
+                        color: esCompletada ? '#00a278'
+                             : esFallida    ? '#ba1a1a'
+                             : ['#004481', '#fbbd08', '#7c3aed'][i % 3],
+                      };
+                    })}
+                    size="large"
+                  />
+                </>
+              ) : <SkeletonCard lines={3} />}
+
+              {conclusionMetas && (
+                <View style={[s.conclusionBox, esAlertaMetas && s.conclusionBoxAlert]}>
+                  <Ionicons
+                    name={esAlertaMetas ? 'warning-outline' : 'checkmark-circle-outline'}
+                    size={15}
+                    color={esAlertaMetas ? '#ba1a1a' : '#004481'}
+                    style={{ flexShrink: 0, marginTop: 1 }}
+                  />
+                  <Text style={s.conclusionTxt}>{conclusionMetas}</Text>
+                </View>
+              )}
+            </View>
+
+            {!loadMetasProg && metasProgreso && (
+              <View style={s.kpiDetailCard}>
+                <Text style={s.cardTitle}>{'Progreso promedio de metas activas'}</Text>
+                <Text style={s.cardSubtitle}>{'Avance real vs objetivo en metas en curso'}</Text>
+                <View style={{ marginTop: 14, gap: 10 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+                    <View style={{ flex: 1, height: 14, backgroundColor: '#e8effa', borderRadius: 7, overflow: 'hidden' }}>
+                      <View style={{
+                        width: `${Math.min(metasProgreso.progreso_promedio, 100)}%`,
+                        height: '100%', borderRadius: 7,
+                        backgroundColor: metasProgreso.progreso_promedio >= 75 ? '#00a278'
+                                       : metasProgreso.progreso_promedio >= 40 ? '#004481' : '#fbbd08',
+                      }} />
+                    </View>
+                    <Text style={{ fontSize: 26, fontWeight: '800', color: '#004481', minWidth: 60, textAlign: 'right' }}>
+                      {`${metasProgreso.progreso_promedio.toFixed(1)}%`}
+                    </Text>
+                  </View>
+                  <View style={s.sideBySideRow}>
+                    <View style={[s.halfCard, { alignItems: 'center' }]}>
+                      <Text style={{ fontSize: 18, fontWeight: '800', color: '#00a278' }}>
+                        {hideAmounts ? '•••••' : fmtMXN(metasProgreso.monto_actual_total)}
+                      </Text>
+                      <Text style={{ fontSize: 11, color: '#737781', marginTop: 2, textAlign: 'center' }}>
+                        {'Ahorrado hasta ahora'}
+                      </Text>
+                    </View>
+                    <View style={[s.halfCard, { alignItems: 'center' }]}>
+                      <Text style={{ fontSize: 18, fontWeight: '800', color: '#004481' }}>
+                        {hideAmounts ? '•••••' : fmtMXN(metasProgreso.monto_objetivo_total)}
+                      </Text>
+                      <Text style={{ fontSize: 11, color: '#737781', marginTop: 2, textAlign: 'center' }}>
+                        {'Objetivo total'}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={s.conclusionBox}>
+                    <Ionicons name="wallet-outline" size={15} color="#004481" style={{ flexShrink: 0, marginTop: 1 }} />
+                    <Text style={s.conclusionTxt}>
+                      {`${fmt(metasProgreso.total_activas)} metas en curso han alcanzado el ${metasProgreso.progreso_promedio.toFixed(1)}% de su objetivo. `}
+                      {metasProgreso.progreso_promedio >= 75
+                        ? 'Gran parte de los clientes están cerca de completar sus metas.'
+                        : 'Activar recordatorios y microincentivos puede acelerar el cierre.'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            )}
 
             {/* ── ETL ── */}
             <Text style={s.sectionHeader}>ETL PIPELINE</Text>

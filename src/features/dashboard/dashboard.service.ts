@@ -12,6 +12,13 @@ import type {
   SegurosPorEstatus, PrimaAnualResumen,
   NotificacionesPorEstatus, NotificacionesPorCanal,
   CuentasPorSucursal, NominaResumen,
+  UtilizacionCredito,
+  UtilizacionCreditoResumen,
+  MorosidadTarjeta,
+  MorosidadTarjetaResumen,
+  TasaInteresPrestamo,
+  MetaAhorroPorEstatus,
+  MetaAhorroProgreso,
 } from './types';
 
 export const dashboardService = {
@@ -67,4 +74,40 @@ export const dashboardService = {
   // ── Cross-selling Nómina ─────────────────────────────────────
   // KPI: % empresas con nómina BBVA — penetración del producto
   getNominaResumen:       (): Promise<NominaResumen>         => api.get('/kpis/nomina-resumen').then(r => r.data),
+
+  // ── Tarjetas de crédito ──────────────────────────────────────────────────
+  // KPI: Utilización promedio del crédito — riesgo de la cartera de tarjetas
+  getUtilizacionCredito:
+    (): Promise<UtilizacionCredito[]> =>
+      api.get('/kpis/utilizacion-credito').then(r => r.data),
+ 
+  getUtilizacionCreditoResumen:
+    (): Promise<UtilizacionCreditoResumen> =>
+      api.get('/kpis/utilizacion-credito/resumen').then(r => r.data),
+ 
+  // KPI: Tasa de morosidad en tarjetas — impagos por tipo
+  getMorosidadTarjetas:
+    (): Promise<MorosidadTarjeta[]> =>
+      api.get('/kpis/morosidad-tarjetas').then(r => r.data),
+ 
+  getMorosidadTarjetasResumen:
+    (): Promise<MorosidadTarjetaResumen> =>
+      api.get('/kpis/morosidad-tarjetas/resumen').then(r => r.data),
+ 
+  // ── Préstamos ─────────────────────────────────────────────────────────────
+  // KPI: Tasa de interés promedio en préstamos — pricing y rentabilidad
+  getTasaInteresPrestamos:
+    (): Promise<TasaInteresPrestamo[]> =>
+      api.get('/kpis/tasa-interes-prestamos').then(r => r.data),
+ 
+  // ── Metas de ahorro ───────────────────────────────────────────────────────
+  // KPI: % metas de ahorro completadas — engagement financiero del cliente
+  getMetasAhorroPorEstatus:
+    (): Promise<MetaAhorroPorEstatus[]> =>
+      api.get('/kpis/metas-ahorro-por-estatus').then(r => r.data),
+ 
+  getMetasAhorroProgreso:
+    (): Promise<MetaAhorroProgreso> =>
+      api.get('/kpis/metas-ahorro-progreso').then(r => r.data),
+ 
 };

@@ -18,6 +18,9 @@ export function DonutChart({ segments, size = 'large' }: Props) {
   const progress = useRef(new Animated.Value(0)).current;
   const [animPct, setAnimPct] = useState(0);
 
+  // Clave de los datos para detectar cambios reales
+  const segKey = segments.map(s => `${s.label}:${s.percentage}`).join('|');
+
   useEffect(() => {
     if (!segments.length) return;
     progress.setValue(0);
@@ -29,7 +32,7 @@ export function DonutChart({ segments, size = 'large' }: Props) {
     }).start();
     const id = progress.addListener(({ value }) => setAnimPct(value));
     return () => progress.removeListener(id);
-  }, [segments.map(s => s.label).join()]);
+  }, [segKey]);
 
   const isLarge = size === 'large';
   const dim     = isLarge ? 180 : 120;
@@ -37,28 +40,52 @@ export function DonutChart({ segments, size = 'large' }: Props) {
   const radius  = isLarge ? 50 : 33;
   const sw      = isLarge ? 22 : 14;
   const circ    = 2 * Math.PI * radius;
-  let acc       = 0;
+
+  // Normalizar los porcentajes para que sumen exactamente 100
+  // Esto evita que el último segmento quede corto o se pase
+  const totalPct = segments.reduce((s, seg) => s + seg.percentage, 0);
+  const normalized = segments.map(seg => ({
+    ...seg,
+    pct: totalPct > 0 ? (seg.percentage / totalPct) * 100 : 0,
+  }));
+
+  // Calcular offsets acumulados ANTES de la animación
+  // para que el cálculo sea siempre consistente
+  const withOffsets = normalized.reduce<{
+    pct: number; color: string; label: string; offset: number;
+  }[]>((acc, seg, i) => {
+    const prevAcc = i === 0 ? 0 : acc.reduce((s, x) => s + x.pct, 0);
+    return [...acc, { ...seg, offset: prevAcc }];
+  }, []);
 
   return (
     <View style={{ alignItems: 'center', marginVertical: 6 }}>
       <Svg width={dim} height={dim} viewBox={`0 0 ${dim} ${dim}`}>
         <G transform={`rotate(-90 ${center} ${center})`}>
+          {/* Fondo gris */}
           <Circle
             cx={center} cy={center} r={radius}
             stroke="#f0f2f5" strokeWidth={sw} fill="transparent"
           />
-          {segments.map((seg, idx) => {
-            const effectivePct = seg.percentage * animPct;
-            const len    = (effectivePct / 100) * circ;
-            const offset = circ - (acc / 100) * circ * animPct;
-            acc += seg.percentage;
+          {/* Segmentos */}
+          {withOffsets.map((seg, idx) => {
+            // Longitud del arco de este segmento, escalada por animación
+            const arcLen    = (seg.pct / 100) * circ * animPct;
+            // El espacio restante completa la circunferencia
+            const gap       = circ - arcLen;
+            // Offset: cuánto hay que rotar para empezar donde terminó el anterior
+            const dashOffset = circ - (seg.offset / 100) * circ * animPct;
+
+            if (arcLen <= 0) return null;
+
             return (
               <Circle
                 key={idx}
                 cx={center} cy={center} r={radius}
-                stroke={seg.color} strokeWidth={sw}
-                strokeDasharray={`${len} ${circ}`}
-                strokeDashoffset={offset}
+                stroke={seg.color}
+                strokeWidth={sw}
+                strokeDasharray={`${arcLen} ${gap}`}
+                strokeDashoffset={dashOffset}
                 strokeLinecap="butt"
                 fill="transparent"
               />
@@ -67,6 +94,7 @@ export function DonutChart({ segments, size = 'large' }: Props) {
         </G>
       </Svg>
 
+      {/* Leyenda */}
       <View style={{
         flexDirection: 'row', flexWrap: 'wrap',
         justifyContent: 'center', gap: 6, marginTop: 6,
@@ -78,7 +106,7 @@ export function DonutChart({ segments, size = 'large' }: Props) {
               backgroundColor: seg.color,
             }} />
             <Text style={{ fontSize: isLarge ? 11 : 10, fontWeight: '600', color: '#5d5f5f' }}>
-              {seg.label} {seg.percentage.toFixed(1)}%
+              {`${seg.label} ${seg.percentage.toFixed(1)}%`}
             </Text>
           </View>
         ))}
