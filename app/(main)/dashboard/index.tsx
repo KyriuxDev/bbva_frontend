@@ -43,7 +43,8 @@ import { UMBRALES, OBJ_CONFIG }                                from '@/src/featu
 import { fmt, fmtMXN, fmtMesLargo, calcTrimestre } from '@/src/features/dashboard/helpers/format';
 import {
   pdfFecha, pdfBarsSvg, pdfLineSvg,
-  pdfConclusion, pdfAcciones, pdfTable, buildDocHtml,
+  pdfConclusion, pdfAcciones, pdfTable,
+  buildDocHtml, buildFullReportHtml,
 } from '@/src/features/dashboard/helpers/pdf';
 
 // ── Estilos ──────────────────────────────────────────────────
@@ -427,61 +428,85 @@ export default function Dashboard() {
   };
 
   const handleExportAll = async () => {
-    if (!etlResumen || !debilidadesData || fraudePorMes.length === 0) {
-      Alert.alert('Espera', 'Los datos aún están cargando.');
+    // Validación mínima: sólo necesitamos que etlResumen haya cargado.
+    // El resto de KPIs se incluyen si están disponibles.
+    if (!etlResumen) {
+      Alert.alert('Espera', 'El resumen ETL aún está cargando. Intenta en unos segundos.');
       return;
     }
+  
     setExportingAll(true);
     try {
-      const fecha  = pdfFecha(), tri = trimestre;
-      const fItems = fraudePorMes.map(d => ({ label: d.año_mes.substring(5), value: d.total_fraudes }));
-      const peakV  = Math.max(...fraudePorMes.map(d => d.total_fraudes));
-      const body   = `
-        <div class="sec"><div class="sec-title">TENDENCIA DE FRAUDES</div>
-          <div class="chart">${pdfLineSvg(fItems)}</div>
-          ${conclusionFraudes ? pdfConclusion(conclusionFraudes, conclusionFraudesAlert) : ''}
-        </div>
-        <div class="sec"><div class="sec-title">FRAUDE POR CATEGORÍA</div>
-          <div class="chart">${pdfBarsSvg(catSlice.map(d => ({ label: d.categoria, value: d.total_fraudes })), '#ba1a1a')}</div>
-        </div>
-        <div class="sec"><div class="sec-title">PRÉSTAMOS POR TIPO</div>
-          <div class="chart">${pdfBarsSvg(prestamos.map((p: PrestamosPorTipo) => ({ label: p.tipo, value: p.total })))}</div>
-        </div>
-        <div class="sec"><div class="sec-title">SALDO POR TIPO DE CUENTA</div>
-          <div class="chart">${pdfBarsSvg(saldoCuentas.map((c: SaldoPorTipoCuenta) => ({ label: c.tipo, value: Number(c.saldo_total) })), '#1973B8')}</div>
-        </div>
-        <div class="sec"><div class="sec-title">SCORE CREDITICIO</div>
-          <div class="chart">${pdfBarsSvg(scores.map((sc: ScoreCrediticio) => ({ label: sc.rango, value: sc.total })), '#7c3aed')}</div>
-        </div>
-        <div class="sec"><div class="sec-title">ETL PIPELINE</div>
-          ${pdfTable([
-            { label: 'Transacciones', val: fmt(etlResumen.total_transacciones) },
-            { label: 'Fraudes',       val: fmt(etlResumen.total_fraudes)       },
-            { label: 'Tasa',          val: `${etlResumen.tasa_fraude_pct?.toFixed(2)}%` },
-            { label: 'Monto riesgo',  val: fmtMXN(etlResumen.monto_total_fraude) },
-          ])}
-        </div>
-        <div class="sec"><div class="sec-title">DEBILIDADES</div>
-          ${soluciones.length === 0
-            ? '<p style="color:#27ae60;font-weight:600;">Sin debilidades criticas.</p>'
-            : soluciones.map(sol => `
-                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;margin-bottom:10px;">
-                  <span class="badge ${sol.prioridad.toLowerCase()}">${sol.prioridad.toUpperCase()}</span>
-                  <div style="font-size:13px;font-weight:700;margin:8px 0 4px;">${sol.problema}</div>
-                  <div style="font-size:12px;color:#475569;">${sol.solucion ?? ''}</div>
-                </div>`).join('')}
-        </div>`;
+      const fecha = pdfFecha();
+      const tri   = trimestre;
+  
+      const html = buildFullReportHtml({
+        fecha,
+        tri,
+        // ── Generales ──
+        kpisResumen,
+        etlResumen,
+        // ── Fraude ──
+        fraudePorMes,
+        fraudePorCanal,
+        fraudePorCategoria,
+        fraudeGeo,
+        fraudeComercio,
+        // ── Clientes ──
+        segmentos,
+        generos,
+        // ── Cuentas y préstamos ──
+        saldoCuentas,
+        prestamos,
+        cobrosExc,
+        scores,
+        // ── Tarjetas de crédito ──
+        utilizacionCredito,
+        utilizacionResumen,
+        morosidadTarjetas,
+        morosidadResumen,
+        tasasInteres,
+        // ── Metas de ahorro ──
+        metasEstatus,
+        metasProgreso,
+        // ── Pagos ──
+        pagosPorEstatus,
+        pagosPorCanal,
+        // ── Seguros ──
+        segurosPorEstatus,
+        primaAnual,
+        // ── Comunicación ──
+        notiEstatus,
+        notiCanal,
+        // ── Sucursales y nómina ──
+        cuentasSucursal,
+        nominaRes,
+        // ── Debilidades ──
+        debilidadesData,
+        soluciones,
+        indicadores: indicadores as Record<string, number> | undefined,
+      });
+  
+      // Timeout de seguridad: 30s para documentos largos
       const { uri } = await Promise.race([
-        Print.printToFileAsync({ html: buildDocHtml('Reporte Ejecutivo de KPIs', fecha, tri, body), base64: false }),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 25000)),
+        Print.printToFileAsync({ html, base64: false }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Timeout al generar el PDF')), 30_000)
+        ),
       ]);
-      await Sharing.shareAsync(uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf', dialogTitle: 'Exportar PDF' });
+  
+      await Sharing.shareAsync(uri, {
+        mimeType:    'application/pdf',
+        UTI:         'com.adobe.pdf',
+        dialogTitle: 'Exportar Reporte Ejecutivo BBVA',
+      });
     } catch (err: any) {
       Alert.alert('Error', err?.message ?? 'No se pudo generar el reporte.');
     } finally {
       setExportingAll(false);
     }
   };
+ 
 
   const val = (v: string | number | undefined) => v !== undefined ? String(v) : '...';
 
