@@ -4,8 +4,6 @@ import {
   StatusBar, ActivityIndicator, Alert, Modal,
   RefreshControl,
 } from 'react-native';
-import * as Sharing from 'expo-sharing';
-import * as Print from 'expo-print';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -15,7 +13,14 @@ import { useAuthStore } from '@/src/store/auth.store';
 import { dashboardService } from '@/src/features/dashboard/dashboard.service';
 import { ComerciosModal } from '@/src/features/dashboard/components/ComerciosModal';
 
-// ── Tipos ────────────────────────────────────────────────────
+// ── Exportación ──────────────────────────────────────────────────────────────
+import {
+  exportKpi,
+  exportFullReport,
+  type DashboardExportData,
+} from '@/src/features/dashboard/helpers/export.service';
+
+// ── Tipos ────────────────────────────────────────────────────────────────────
 import type {
   FraudePorMes, Solucion,
   PrestamosPorTipo, SaldoPorTipoCuenta,
@@ -23,7 +28,7 @@ import type {
   FraudeGeo, FraudeComercio,
 } from '@/src/features/dashboard/types';
 
-// ── Componentes ──────────────────────────────────────────────
+// ── Componentes ──────────────────────────────────────────────────────────────
 import { SkeletonCard }         from '@/src/features/dashboard/components/SkeletonCard';
 import { DonutChart }           from '@/src/features/dashboard/components/DonutChart';
 import type { Segment }         from '@/src/features/dashboard/components/DonutChart';
@@ -35,22 +40,39 @@ import { ObjetivoCard }         from '@/src/features/dashboard/components/Objeti
 import { FraudeMapView }        from '@/src/features/dashboard/components/FraudeMapView';
 import { ComercioCard }         from '@/src/features/dashboard/components/ComercioCard';
 
-// ── Constantes ───────────────────────────────────────────────
+// ── Constantes ───────────────────────────────────────────────────────────────
 import { PALETTE, CANAL_COLORS, AREA_ICONS, PRIORIDAD_COLOR } from '@/src/features/dashboard/constants/colores';
 import { UMBRALES, OBJ_CONFIG }                                from '@/src/features/dashboard/constants/umbrales';
 
-// ── Helpers ──────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 import { fmt, fmtMXN, fmtMesLargo, calcTrimestre } from '@/src/features/dashboard/helpers/format';
-import {
-  pdfFecha, pdfBarsSvg, pdfLineSvg,
-  pdfConclusion, pdfAcciones, pdfTable,
-  buildDocHtml, buildFullReportHtml,
-} from '@/src/features/dashboard/helpers/pdf';
 
-// ── Estilos ──────────────────────────────────────────────────
+// ── Estilos ──────────────────────────────────────────────────────────────────
 import { s } from '@/src/features/dashboard/styles/styles';
 
 const STALE = 5 * 60 * 1000;
+
+// ── Botón de exportación reutilizable ────────────────────────────────────────
+function ExportBtn({
+  id, exportingKpi, exportingAll, onPress,
+}: {
+  id: string;
+  exportingKpi: string | null;
+  exportingAll: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={s.kpiExportBtn}
+      onPress={onPress}
+      disabled={exportingKpi !== null || exportingAll}
+    >
+      {exportingKpi === id
+        ? <ActivityIndicator size="small" color="#004481" />
+        : <Ionicons name="download-outline" size={16} color="#004481" />}
+    </TouchableOpacity>
+  );
+}
 
 export default function Dashboard() {
   const insets = useSafeAreaInsets();
@@ -58,11 +80,11 @@ export default function Dashboard() {
   const lock   = useAuthStore((s) => s.lock);
   const logout = useAuthStore((s) => s.logout);
 
-  // ── UI state ─────────────────────────────────────────────────
-  const [activeTab, setActiveTab]       = useState<'Inicio' | 'KPIs' | 'Debilidades' | 'Objetivos'>('Inicio');
-  const [hideAmounts, setHideAmounts]   = useState(false);
-  const [refreshing, setRefreshing]     = useState(false);
-  const [lastUpdate, setLastUpdate]     = useState(
+  // ── UI state ─────────────────────────────────────────────────────────────
+  const [activeTab, setActiveTab]     = useState<'Inicio' | 'KPIs' | 'Debilidades' | 'Objetivos'>('Inicio');
+  const [hideAmounts, setHideAmounts] = useState(false);
+  const [refreshing, setRefreshing]   = useState(false);
+  const [lastUpdate, setLastUpdate]   = useState(
     new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
   );
   const [expandedDebId,      setExpandedDebId]      = useState<number | null>(null);
@@ -72,7 +94,7 @@ export default function Dashboard() {
   const [exportingAll,       setExportingAll]       = useState(false);
   const [comerciosModalVisible, setComerciosModalVisible] = useState(false);
 
-  // ── Queries existentes ───────────────────────────────────────
+  // ── Queries ───────────────────────────────────────────────────────────────
   const { data: kpisResumen,     refetch: rKpisResumen } = useQuery({ queryKey: ['kpis-resumen'],      queryFn: dashboardService.getKpisResumen,        staleTime: STALE });
   const { data: etlResumen,      refetch: rEtl         } = useQuery({ queryKey: ['etl-resumen'],       queryFn: dashboardService.getEtlResumen,         staleTime: STALE });
   const { data: debilidadesData, refetch: rDebilidades } = useQuery({ queryKey: ['debilidades'],       queryFn: dashboardService.getDebilidades,        staleTime: STALE });
@@ -87,10 +109,9 @@ export default function Dashboard() {
   const { data: saldoCuentas = [], isLoading: loadSaldo, refetch: rSaldo  } = useQuery({ queryKey: ['kpis-saldo'],     queryFn: dashboardService.getSaldoPorTipoCuenta,  staleTime: STALE });
   const { data: scores       = [], isLoading: loadScore, refetch: rScores } = useQuery({ queryKey: ['kpis-scores'],    queryFn: dashboardService.getScoreCrediticio,     staleTime: STALE });
   const { data: cobrosExc    = [], isLoading: loadCob,   refetch: rCobros } = useQuery({ queryKey: ['kpis-cobros'],    queryFn: dashboardService.getCobrosExcedidos,     staleTime: STALE });
-  const { data: fraudeGeo      = [], isLoading: loadGeo, refetch: rGeo    } = useQuery({ queryKey: ['fraude-geo'],      queryFn: dashboardService.getFraudeGeografico,   staleTime: STALE });
+  const { data: fraudeGeo    = [], isLoading: loadGeo,   refetch: rGeo    } = useQuery({ queryKey: ['fraude-geo'],      queryFn: dashboardService.getFraudeGeografico,   staleTime: STALE });
   const { data: fraudeComercio = [], isLoading: loadCom, refetch: rCom    } = useQuery({ queryKey: ['fraude-comercio'], queryFn: dashboardService.getFraudePorComercio,  staleTime: STALE });
 
-  // ── Nuevos KPIs ──────────────────────────────────────────────
   const { data: pagosPorEstatus   = [], isLoading: loadPagosEst, refetch: rPagosEst  } = useQuery({ queryKey: ['kpis-pagos-estatus'],  queryFn: dashboardService.getPagosPorEstatus,          staleTime: STALE });
   const { data: pagosPorCanal     = [], isLoading: loadPagosCan, refetch: rPagosCan  } = useQuery({ queryKey: ['kpis-pagos-canal'],    queryFn: dashboardService.getPagosPorCanal,            staleTime: STALE });
   const { data: segurosPorEstatus = [], isLoading: loadSegEst,   refetch: rSegEst    } = useQuery({ queryKey: ['kpis-seguros-est'],    queryFn: dashboardService.getSegurosPorEstatus,        staleTime: STALE });
@@ -99,15 +120,16 @@ export default function Dashboard() {
   const { data: notiCanal         = [], isLoading: loadNotiCan,  refetch: rNotiCan   } = useQuery({ queryKey: ['kpis-noti-canal'],     queryFn: dashboardService.getNotificacionesPorCanal,   staleTime: STALE });
   const { data: cuentasSucursal   = [], isLoading: loadSucursal, refetch: rSucursal  } = useQuery({ queryKey: ['kpis-sucursales'],     queryFn: dashboardService.getCuentasPorSucursal,       staleTime: STALE });
   const { data: nominaRes,             isLoading: loadNomina,    refetch: rNomina    } = useQuery({ queryKey: ['kpis-nomina'],         queryFn: dashboardService.getNominaResumen,            staleTime: STALE });
-  const { data: utilizacionCredito      = [], isLoading: loadUtilCred,  refetch: rUtilCred  } = useQuery({ queryKey: ['kpis-util-credito'],      queryFn: dashboardService.getUtilizacionCredito,        staleTime: STALE });
-  const { data: utilizacionResumen,                  isLoading: loadUtilRes,   refetch: rUtilRes   } = useQuery({ queryKey: ['kpis-util-credito-res'],  queryFn: dashboardService.getUtilizacionCreditoResumen, staleTime: STALE });
-  const { data: morosidadTarjetas       = [], isLoading: loadMorosidad, refetch: rMorosidad } = useQuery({ queryKey: ['kpis-morosidad'],         queryFn: dashboardService.getMorosidadTarjetas,          staleTime: STALE });
-  const { data: morosidadResumen,                    isLoading: loadMorRes,    refetch: rMorRes    } = useQuery({ queryKey: ['kpis-morosidad-res'],     queryFn: dashboardService.getMorosidadTarjetasResumen,  staleTime: STALE });
-  const { data: tasasInteres            = [], isLoading: loadTasas,     refetch: rTasas     } = useQuery({ queryKey: ['kpis-tasas'],             queryFn: dashboardService.getTasaInteresPrestamos,       staleTime: STALE });
-  const { data: metasEstatus            = [], isLoading: loadMetasEst,  refetch: rMetasEst  } = useQuery({ queryKey: ['kpis-metas-estatus'],     queryFn: dashboardService.getMetasAhorroPorEstatus,     staleTime: STALE });
-  const { data: metasProgreso,                       isLoading: loadMetasProg, refetch: rMetasProg } = useQuery({ queryKey: ['kpis-metas-progreso'],    queryFn: dashboardService.getMetasAhorroProgreso,       staleTime: STALE });
-  
-  // ── Pull-to-refresh ──────────────────────────────────────────
+
+  const { data: utilizacionCredito  = [], isLoading: loadUtilCred,  refetch: rUtilCred  } = useQuery({ queryKey: ['kpis-util-credito'],      queryFn: dashboardService.getUtilizacionCredito,        staleTime: STALE });
+  const { data: utilizacionResumen,       isLoading: loadUtilRes,   refetch: rUtilRes   } = useQuery({ queryKey: ['kpis-util-credito-res'],  queryFn: dashboardService.getUtilizacionCreditoResumen, staleTime: STALE });
+  const { data: morosidadTarjetas   = [], isLoading: loadMorosidad, refetch: rMorosidad } = useQuery({ queryKey: ['kpis-morosidad'],         queryFn: dashboardService.getMorosidadTarjetas,          staleTime: STALE });
+  const { data: morosidadResumen,         isLoading: loadMorRes,    refetch: rMorRes    } = useQuery({ queryKey: ['kpis-morosidad-res'],     queryFn: dashboardService.getMorosidadTarjetasResumen,  staleTime: STALE });
+  const { data: tasasInteres        = [], isLoading: loadTasas,     refetch: rTasas     } = useQuery({ queryKey: ['kpis-tasas'],             queryFn: dashboardService.getTasaInteresPrestamos,       staleTime: STALE });
+  const { data: metasEstatus        = [], isLoading: loadMetasEst,  refetch: rMetasEst  } = useQuery({ queryKey: ['kpis-metas-estatus'],     queryFn: dashboardService.getMetasAhorroPorEstatus,     staleTime: STALE });
+  const { data: metasProgreso,            isLoading: loadMetasProg, refetch: rMetasProg } = useQuery({ queryKey: ['kpis-metas-progreso'],    queryFn: dashboardService.getMetasAhorroProgreso,       staleTime: STALE });
+
+  // ── Pull-to-refresh ───────────────────────────────────────────────────────
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await Promise.all([
@@ -117,12 +139,14 @@ export default function Dashboard() {
       rGeo(), rCom(),
       rPagosEst(), rPagosCan(), rSegEst(), rPrima(),
       rNotiEst(), rNotiCan(), rSucursal(), rNomina(),
+      rUtilCred(), rUtilRes(), rMorosidad(), rMorRes(),
+      rTasas(), rMetasEst(), rMetasProg(),
     ]);
     setLastUpdate(new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }));
     setRefreshing(false);
   }, []);
 
-  // ── Datos derivados ──────────────────────────────────────────
+  // ── Datos derivados ───────────────────────────────────────────────────────
   const donutFraude: Segment[] = fraudePorCanal.map(d => ({
     percentage: Math.round(d.porcentaje * 10) / 10,
     color: CANAL_COLORS[d.canal] ?? '#737781',
@@ -145,23 +169,15 @@ export default function Dashboard() {
 
   const catSlice  = fraudePorCategoria.slice(0, 8);
   const catMax    = catSlice.length ? catSlice.reduce((m, d) => d.total_fraudes > m.total_fraudes ? d : m) : null;
-  const catMin    = catSlice.length ? catSlice.reduce((m, d) => d.total_fraudes < m.total_fraudes ? d : m) : null;
   const catMaxIdx = catMax ? catSlice.findIndex(d => d.categoria === catMax.categoria) : -1;
 
   const soluciones  = debilidadesData?.soluciones ?? [];
   const indicadores = debilidadesData?.debilidades;
-  const altaCount   = soluciones.filter(s => s.prioridad === 'Alta').length;
+  const altaCount   = soluciones.filter((s: Solucion) => s.prioridad === 'Alta').length;
   const indMap      = indicadores as Record<string, number> | undefined;
   const trimestre   = calcTrimestre();
 
-  const saldoMax = saldoCuentas.length ? saldoCuentas.reduce((m: SaldoPorTipoCuenta, d: SaldoPorTipoCuenta) => Number(d.saldo_total) > Number(m.saldo_total) ? d : m) : null;
-  const saldoMin = saldoCuentas.length ? saldoCuentas.reduce((m: SaldoPorTipoCuenta, d: SaldoPorTipoCuenta) => Number(d.saldo_total) < Number(m.saldo_total) ? d : m) : null;
-  const prestMax = prestamos.length ? prestamos.reduce((m: PrestamosPorTipo, d: PrestamosPorTipo) => d.total > m.total ? d : m) : null;
-  const prestMin = prestamos.length ? prestamos.reduce((m: PrestamosPorTipo, d: PrestamosPorTipo) => d.total < m.total ? d : m) : null;
-  const scoreMax = scores.length ? scores.reduce((m: ScoreCrediticio, d: ScoreCrediticio) => d.total > m.total ? d : m) : null;
-  const scoreMin = scores.length ? scores.reduce((m: ScoreCrediticio, d: ScoreCrediticio) => d.total < m.total ? d : m) : null;
-
-  // ── Conclusiones ─────────────────────────────────────────────
+  // ── Conclusiones ──────────────────────────────────────────────────────────
   const _fraudesMeta = (() => {
     if (fraudePorMes.length < 3) return null;
     const pico   = fraudePorMes.reduce((m, d) => d.total_fraudes > m.total_fraudes ? d : m);
@@ -180,25 +196,36 @@ export default function Dashboard() {
   const conclusionFraudesAlert = _fraudesMeta?.isAlza ?? false;
 
   const conclusionCat = (() => {
-    if (!catMax || !catMin || catMax.categoria === catMin.categoria) return null;
+    if (!catMax) return null;
+    const catMin = catSlice.length ? catSlice.reduce((m, d) => d.total_fraudes < m.total_fraudes ? d : m) : null;
+    if (!catMin || catMax.categoria === catMin.categoria) return null;
     const diff = (catMax.total_fraudes - catMin.total_fraudes) / catMax.total_fraudes;
     return diff > 0.15
       ? `${catMax.categoria} concentra notablemente más fraude. Focalizar los controles aquí tendría el mayor impacto.`
       : `El fraude está distribuido similarmente. ${catMax.categoria} encabeza y merece monitoreo prioritario.`;
   })();
 
-  const conclusionPrest = prestMax && prestMin && prestMax.tipo !== prestMin.tipo
-    ? `Los préstamos ${prestMax.tipo.toLowerCase()} son los más solicitados y representan la mayor exposición crediticia.`
-    : null;
+  const conclusionPrest = (() => {
+    if (!prestamos.length) return null;
+    const prestMax = prestamos.reduce((m: PrestamosPorTipo, d: PrestamosPorTipo) => d.total > m.total ? d : m);
+    const prestMin = prestamos.reduce((m: PrestamosPorTipo, d: PrestamosPorTipo) => d.total < m.total ? d : m);
+    return prestMax.tipo !== prestMin.tipo
+      ? `Los préstamos ${prestMax.tipo.toLowerCase()} son los más solicitados y representan la mayor exposición crediticia.`
+      : null;
+  })();
 
   const _scoreAlert = (() => {
-    if (!scoreMax) return false;
+    if (!scores.length) return false;
+    const scoreMax = scores.reduce((m: ScoreCrediticio, d: ScoreCrediticio) => d.total > m.total ? d : m);
     const firstNum = parseInt(scoreMax.rango.split(/[-\s]/)[0], 10);
     return !isNaN(firstNum) && firstNum < 600;
   })();
 
   const conclusionScore = (() => {
-    if (!scoreMax || !scoreMin || scoreMax.rango === scoreMin.rango) return null;
+    if (!scores.length) return null;
+    const scoreMax = scores.reduce((m: ScoreCrediticio, d: ScoreCrediticio) => d.total > m.total ? d : m);
+    const scoreMin = scores.reduce((m: ScoreCrediticio, d: ScoreCrediticio) => d.total < m.total ? d : m);
+    if (scoreMax.rango === scoreMin.rango) return null;
     const firstNum = parseInt(scoreMax.rango.split(/[-\s]/)[0], 10);
     if (!isNaN(firstNum) && firstNum >= 600)
       return 'La mayoría de clientes presenta un perfil crediticio saludable, dando margen para ampliar la oferta de crédito.';
@@ -207,24 +234,24 @@ export default function Dashboard() {
     return `El rango ${scoreMax.rango} agrupa al mayor número de clientes.`;
   })();
 
-    const conclusionUtilizacion = (() => {
+  const conclusionUtilizacion = (() => {
     if (!utilizacionResumen) return null;
     const pct = utilizacionResumen.utilizacion_global;
-    if (pct > 70) return `Utilización global del ${pct.toFixed(1)}%, por encima del 70%. Riesgo elevado de incumplimiento; revisar límites y alertas preventivas.`;
-    if (pct > 50) return `Utilización del ${pct.toFixed(1)}%. Nivel moderado; monitorear clientes con uso superior al 80% de su límite individual.`;
+    if (pct > 70) return `Utilización global del ${pct.toFixed(1)}%, por encima del 70%. Riesgo elevado; revisar límites y alertas preventivas.`;
+    if (pct > 50) return `Utilización del ${pct.toFixed(1)}%. Nivel moderado; monitorear clientes con uso superior al 80%.`;
     return `Utilización promedio del ${pct.toFixed(1)}%. Cartera de tarjetas con capacidad crediticia saludable.`;
   })();
   const esAlertaUtilizacion = (utilizacionResumen?.utilizacion_global ?? 0) > 70;
-  
+
   const conclusionMorosidad = (() => {
     if (!morosidadResumen) return null;
     const pct = morosidadResumen.tasa_morosidad;
-    if (pct > 40) return `El ${pct.toFixed(1)}% de las tarjetas están bloqueadas. Nivel crítico; revisar políticas de otorgamiento y activar estrategias de recuperación.`;
-    if (pct > 30) return `El ${pct.toFixed(1)}% de las tarjetas activas están bloqueadas por impago. Se recomienda campaña de regularización y revisión de perfiles de riesgo.`;
+    if (pct > 40) return `El ${pct.toFixed(1)}% de las tarjetas están bloqueadas. Nivel crítico; activar estrategias de recuperación.`;
+    if (pct > 30) return `El ${pct.toFixed(1)}% de las tarjetas activas están bloqueadas. Campaña de regularización recomendada.`;
     return `El ${pct.toFixed(1)}% de las tarjetas están bloqueadas por impago. Las tarjetas activas operan con normalidad.`;
   })();
   const esAlertaMorosidad = (morosidadResumen?.tasa_morosidad ?? 0) > 30;
-  
+
   const conclusionTasas = (() => {
     if (!tasasInteres.length) return null;
     const maxTasa = tasasInteres.reduce((m, t) => t.tasa_promedio > m.tasa_promedio ? t : m);
@@ -232,17 +259,17 @@ export default function Dashboard() {
     if (maxTasa.tipo_prestamo === minTasa.tipo_prestamo) return null;
     const diff = maxTasa.tasa_promedio - minTasa.tasa_promedio;
     return diff > 5
-      ? `${maxTasa.tipo_prestamo} tiene la tasa más alta (${maxTasa.tasa_promedio.toFixed(1)}%) y ${minTasa.tipo_prestamo} la más baja (${minTasa.tasa_promedio.toFixed(1)}%). Revisar pricing para mayor competitividad.`
-      : `Las tasas están relativamente niveladas entre productos. ${maxTasa.tipo_prestamo} lidera en costo (${maxTasa.tasa_promedio.toFixed(1)}%).`;
+      ? `${maxTasa.tipo_prestamo} tiene la tasa más alta (${maxTasa.tasa_promedio.toFixed(1)}%) y ${minTasa.tipo_prestamo} la más baja (${minTasa.tasa_promedio.toFixed(1)}%). Revisar pricing.`
+      : `Las tasas están relativamente niveladas. ${maxTasa.tipo_prestamo} lidera en costo (${maxTasa.tasa_promedio.toFixed(1)}%).`;
   })();
-  
+
   const conclusionMetas = (() => {
     const completadas = metasEstatus.find(m => m.estatus?.toLowerCase().includes('complet'));
     const fallidas    = metasEstatus.find(m => m.estatus?.toLowerCase().includes('fall'));
     if (!completadas) return null;
     if (fallidas && fallidas.porcentaje > completadas.porcentaje)
-      return `Las metas fallidas (${fallidas.porcentaje.toFixed(1)}%) superan a las completadas (${completadas.porcentaje.toFixed(1)}%). Revisar montos objetivo y activar recordatorios automáticos.`;
-    return `El ${completadas.porcentaje.toFixed(1)}% de las metas fueron completadas exitosamente. Buen indicador de engagement financiero.`;
+      return `Las metas fallidas (${fallidas.porcentaje.toFixed(1)}%) superan a las completadas (${completadas.porcentaje.toFixed(1)}%). Revisar montos objetivo.`;
+    return `El ${completadas.porcentaje.toFixed(1)}% de las metas fueron completadas exitosamente.`;
   })();
   const esAlertaMetas = (() => {
     const completadas = metasEstatus.find(m => m.estatus?.toLowerCase().includes('complet'));
@@ -250,7 +277,7 @@ export default function Dashboard() {
     return !!(fallidas && completadas && fallidas.porcentaje > completadas.porcentaje);
   })();
 
-  // ── Estado global ────────────────────────────────────────────
+  // ── Estado global ─────────────────────────────────────────────────────────
   const estadoGlobal = (() => {
     if (!indicadores) return null;
     const lista = [
@@ -273,7 +300,7 @@ export default function Dashboard() {
     return { estado: 'NORMAL' as const, count: 0, peor: null };
   })();
 
-  // ── Objetivos generados ──────────────────────────────────────
+  // ── Objetivos generados ───────────────────────────────────────────────────
   const objetivosGenerados = indMap
     ? Object.entries(OBJ_CONFIG)
         .filter(([clave, cfg]) => (indMap[clave] ?? 0) > cfg.umbral)
@@ -288,229 +315,72 @@ export default function Dashboard() {
         .sort((a, b) => ({ Alta: 0, Media: 1, Baja: 2 }[a.prioridad] - { Alta: 0, Media: 1, Baja: 2 }[b.prioridad]))
     : [];
 
-  // ── PDF ──────────────────────────────────────────────────────
-  const sharePdf = async (html: string) => {
-    const { uri } = await Print.printToFileAsync({ html, base64: false });
-    await Sharing.shareAsync(uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf', dialogTitle: 'Exportar PDF' });
+  // ── Datos para exportación ────────────────────────────────────────────────
+  const exportData: DashboardExportData = {
+    kpisResumen, etlResumen,
+    fraudePorMes, fraudePorCanal, fraudePorCategoria, fraudeGeo, fraudeComercio,
+    segmentos, generos,
+    saldoCuentas, prestamos, cobrosExc, scores,
+    utilizacionCredito, utilizacionResumen, morosidadTarjetas, morosidadResumen, tasasInteres,
+    metasEstatus, metasProgreso,
+    pagosPorEstatus, pagosPorCanal,
+    segurosPorEstatus, primaAnual,
+    notiEstatus, notiCanal,
+    cuentasSucursal, nominaRes,
+    debilidadesData, soluciones,
+    indicadores: indMap,
   };
 
-  // Bloquea sin borrar token (muestra huella al volver)
-  const handleLock = () => lock();
-  const isLocked = useAuthStore((s) => s.isLocked);
-
-  
-
-  // Logout real (borra token, requiere contraseña)
-  const handleLogout = async () => {
-    await logout();
-    router.replace('/(auth)/welcome');
-  };
-
-  const handlePressLogout = () => {
-    Alert.alert(
-      'Cerrar sesión',
-      '¿Qué deseas hacer?',
-      [
-        {
-          text: 'Bloquear pantalla',
-          onPress: handleLock,
-        },
-        {
-          text: 'Cerrar sesión completa',
-          style: 'destructive',
-          onPress: handleLogout,
-        },
-        {
-          text: 'Cancelar',
-          style: 'cancel',
-        },
-      ]
-    );
-  };
-
-  useEffect(() => {
-    if (isLocked) {
-      router.replace('/(auth)/login');
-    }
-  }, [isLocked]);
-
+  // ── Handlers de exportación ───────────────────────────────────────────────
   const handleExportKpi = async (id: string) => {
     setExportingKpi(id);
     try {
-      const fecha = pdfFecha(), tri = trimestre;
-      let body = '';
-      if (id === 'fraude-tendencia') {
-        const items = fraudePorMes.map(d => ({ label: d.año_mes.substring(5), value: d.total_fraudes }));
-        const peakV = fraudePorMes.length ? Math.max(...fraudePorMes.map(d => d.total_fraudes)) : 0;
-        body = `<div class="sec"><div class="sec-title">TENDENCIA MENSUAL DE FRAUDES</div>
-          <div class="chips">
-            <div class="chip"><div class="chip-lbl">Meses</div><div class="chip-val">${fraudePorMes.length}</div></div>
-            <div class="chip"><div class="chip-lbl">Pico máximo</div><div class="chip-val risk">${fmt(peakV)}</div></div>
-          </div>
-          <div class="chart">${pdfLineSvg(items)}</div>
-          ${conclusionFraudes ? pdfConclusion(conclusionFraudes, conclusionFraudesAlert) : ''}
-          ${pdfAcciones(OBJ_CONFIG.porcentajeFraudePotencial.acciones)}
-        </div>`;
-      } else if (id === 'fraude-categoria') {
-        body = `<div class="sec"><div class="sec-title">FRAUDE POR CATEGORÍA</div>
-          <div class="chart">${pdfBarsSvg(catSlice.map(d => ({ label: d.categoria, value: d.total_fraudes })), '#ba1a1a')}</div>
-          ${conclusionCat ? pdfConclusion(conclusionCat, true) : ''}
-        </div>`;
-      } else if (id === 'prestamos') {
-        body = `<div class="sec"><div class="sec-title">PRÉSTAMOS POR TIPO</div>
-          <div class="chart">${pdfBarsSvg(prestamos.map((p: PrestamosPorTipo) => ({ label: p.tipo, value: p.total })))}</div>
-          ${conclusionPrest ? pdfConclusion(conclusionPrest) : ''}
-        </div>`;
-      } else if (id === 'saldo-cuentas') {
-        const concl = saldoMax && saldoMin && saldoMax.tipo !== saldoMin.tipo ? `La ${saldoMax.tipo} concentra la mayor liquidez.` : '';
-        body = `<div class="sec"><div class="sec-title">SALDO POR TIPO DE CUENTA</div>
-          <div class="chart">${pdfBarsSvg(saldoCuentas.map((c: SaldoPorTipoCuenta) => ({ label: c.tipo, value: Number(c.saldo_total) })), '#1973B8')}</div>
-          ${concl ? pdfConclusion(concl) : ''}
-        </div>`;
-      } else if (id === 'score') {
-        body = `<div class="sec"><div class="sec-title">SCORE CREDITICIO</div>
-          <div class="chart">${pdfBarsSvg(scores.map((sc: ScoreCrediticio) => ({ label: sc.rango, value: sc.total })), '#7c3aed')}</div>
-          ${conclusionScore ? pdfConclusion(conclusionScore, _scoreAlert) : ''}
-        </div>`;
-      } else if (id === 'cobros') {
-        body = `<div class="sec"><div class="sec-title">COBROS EXCEDIDOS</div>
-          ${cobrosExc.length ? `<div class="chart">${pdfBarsSvg(cobrosExc.map((c: CobrosExcedidos) => ({ label: c.tipo, value: c.total })), '#ba1a1a')}</div>` : '<p style="color:#27ae60;font-weight:600;">Sin cobros excedidos</p>'}
-        </div>`;
-      } else if (id === 'etl') {
-        const rows = etlResumen ? [
-          { label: 'Transacciones', val: fmt(etlResumen.total_transacciones) },
-          { label: 'Fraudes',       val: fmt(etlResumen.total_fraudes)       },
-          { label: 'Tasa',          val: `${etlResumen.tasa_fraude_pct?.toFixed(2)}%` },
-          { label: 'Monto riesgo',  val: fmtMXN(etlResumen.monto_total_fraude) },
-        ] : [];
-        body = `<div class="sec"><div class="sec-title">ETL PIPELINE</div>${rows.length ? pdfTable(rows) : '<p>Sin datos</p>'}</div>`;
-      } else if (id === 'pagos-estatus') {
-        body = `<div class="sec"><div class="sec-title">TASA DE ÉXITO EN PAGOS</div>
-          <div class="chart">${pdfBarsSvg(pagosPorEstatus.map(d => ({ label: d.estatus, value: d.total })), '#00a278')}</div>
-          ${pdfTable(pagosPorEstatus.map(d => ({ label: d.estatus, val: `${fmt(d.total)} (${d.porcentaje.toFixed(1)}%)` })))}
-        </div>`;
-      } else if (id === 'seguros-estatus') {
-        body = `<div class="sec"><div class="sec-title">PÓLIZAS DE SEGUROS</div>
-          ${pdfTable(segurosPorEstatus.map(d => ({ label: d.estatus, val: `${fmt(d.total)} (${d.porcentaje.toFixed(1)}%)` })))}
-          ${primaAnual ? pdfConclusion(`Ingreso total: ${fmtMXN(primaAnual.prima_total)} · Promedio: ${fmtMXN(primaAnual.prima_promedio)}`) : ''}
-        </div>`;
-      } else if (id === 'notificaciones-estatus') {
-        body = `<div class="sec"><div class="sec-title">NOTIFICACIONES</div>
-          <div class="chart">${pdfBarsSvg(notiEstatus.map(d => ({ label: d.estatus, value: d.total })), '#004481')}</div>
-          ${pdfTable(notiCanal.map(d => ({ label: d.canal, val: `${fmt(d.total)} (${d.porcentaje.toFixed(1)}%)` })))}
-        </div>`;
-      } else if (id === 'sucursales') {
-        const topSuc = [...cuentasSucursal].sort((a, b) => b.nuevas_cuentas - a.nuevas_cuentas).slice(0, 10);
-        body = `<div class="sec"><div class="sec-title">NUEVAS CUENTAS POR SUCURSAL</div>
-          <div class="chart">${pdfBarsSvg(topSuc.map(s => ({ label: s.sucursal, value: s.nuevas_cuentas })))}</div>
-          ${nominaRes ? pdfConclusion(`Penetración nómina BBVA: ${nominaRes.porcentaje_penetracion.toFixed(1)}%`) : ''}
-        </div>`;
-      }
-      const titulos: Record<string, string> = {
-        'fraude-tendencia':       'Tendencia de Fraudes',
-        'fraude-categoria':       'Fraude por Categoria',
-        'prestamos':              'Prestamos por Tipo',
-        'saldo-cuentas':          'Saldo por Tipo de Cuenta',
-        'score':                  'Score Crediticio',
-        'cobros':                 'Cobros Excedidos',
-        'etl':                    'Pipeline ETL',
-        'pagos-estatus':          'Tasa de Exito en Pagos',
-        'seguros-estatus':        'Polizas de Seguros',
-        'notificaciones-estatus': 'Notificaciones',
-        'sucursales':             'Nuevas Cuentas por Sucursal',
-      };
-      await sharePdf(buildDocHtml(`KPI: ${titulos[id] ?? id}`, fecha, tri, body));
-    } catch {
-      Alert.alert('Error', 'No se pudo generar el PDF.');
+      await exportKpi(id, exportData);
+    } catch (err: any) {
+      Alert.alert('Error', err?.message ?? 'No se pudo generar el PDF.');
     } finally {
       setExportingKpi(null);
     }
   };
 
   const handleExportAll = async () => {
-    // Validación mínima: sólo necesitamos que etlResumen haya cargado.
-    // El resto de KPIs se incluyen si están disponibles.
     if (!etlResumen) {
       Alert.alert('Espera', 'El resumen ETL aún está cargando. Intenta en unos segundos.');
       return;
     }
-  
     setExportingAll(true);
     try {
-      const fecha = pdfFecha();
-      const tri   = trimestre;
-  
-      const html = buildFullReportHtml({
-        fecha,
-        tri,
-        // ── Generales ──
-        kpisResumen,
-        etlResumen,
-        // ── Fraude ──
-        fraudePorMes,
-        fraudePorCanal,
-        fraudePorCategoria,
-        fraudeGeo,
-        fraudeComercio,
-        // ── Clientes ──
-        segmentos,
-        generos,
-        // ── Cuentas y préstamos ──
-        saldoCuentas,
-        prestamos,
-        cobrosExc,
-        scores,
-        // ── Tarjetas de crédito ──
-        utilizacionCredito,
-        utilizacionResumen,
-        morosidadTarjetas,
-        morosidadResumen,
-        tasasInteres,
-        // ── Metas de ahorro ──
-        metasEstatus,
-        metasProgreso,
-        // ── Pagos ──
-        pagosPorEstatus,
-        pagosPorCanal,
-        // ── Seguros ──
-        segurosPorEstatus,
-        primaAnual,
-        // ── Comunicación ──
-        notiEstatus,
-        notiCanal,
-        // ── Sucursales y nómina ──
-        cuentasSucursal,
-        nominaRes,
-        // ── Debilidades ──
-        debilidadesData,
-        soluciones,
-        indicadores: indicadores as Record<string, number> | undefined,
-      });
-  
-      // Timeout de seguridad: 30s para documentos largos
-      const { uri } = await Promise.race([
-        Print.printToFileAsync({ html, base64: false }),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Timeout al generar el PDF')), 30_000)
-        ),
-      ]);
-  
-      await Sharing.shareAsync(uri, {
-        mimeType:    'application/pdf',
-        UTI:         'com.adobe.pdf',
-        dialogTitle: 'Exportar Reporte Ejecutivo BBVA',
-      });
+      await exportFullReport(exportData);
     } catch (err: any) {
       Alert.alert('Error', err?.message ?? 'No se pudo generar el reporte.');
     } finally {
       setExportingAll(false);
     }
   };
- 
+
+  // ── Auth / Lock ───────────────────────────────────────────────────────────
+  const isLocked = useAuthStore((st) => st.isLocked);
+
+  const handleLock = () => lock();
+  const handleLogout = async () => {
+    await logout();
+    router.replace('/(auth)/welcome');
+  };
+  const handlePressLogout = () => {
+    Alert.alert('Cerrar sesión', '¿Qué deseas hacer?', [
+      { text: 'Bloquear pantalla',     onPress: handleLock },
+      { text: 'Cerrar sesión completa', style: 'destructive', onPress: handleLogout },
+      { text: 'Cancelar',              style: 'cancel' },
+    ]);
+  };
+
+  useEffect(() => {
+    if (isLocked) router.replace('/(auth)/login');
+  }, [isLocked]);
 
   const val = (v: string | number | undefined) => v !== undefined ? String(v) : '...';
 
-  // ─────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <View style={[s.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
@@ -531,7 +401,7 @@ export default function Dashboard() {
 
       <View style={{ flex: 1 }}>
 
-        {/* ══ INICIO ══════════════════════════════════════════════ */}
+        {/* ══ INICIO ══════════════════════════════════════════════════════════ */}
         {activeTab === 'Inicio' && (
           <ScrollView style={s.scrollBody} contentContainerStyle={s.scrollContent}
             showsVerticalScrollIndicator={false}
@@ -574,11 +444,11 @@ export default function Dashboard() {
             <Text style={s.sectionTitle}>Indicadores Generales</Text>
             <View style={s.kpiGrid}>
               {[
-                { icon: 'people-outline',          label: 'Total Clientes',     val: kpisResumen && fmt(kpisResumen.totalClientes),        trend: 'up',   txt: 'Registrados'   },
-                { icon: 'checkmark-circle-outline', label: 'Cuentas Activas',   val: kpisResumen && fmt(kpisResumen.cuentasActivas),       trend: 'up',   txt: 'Vigentes'      },
-                { icon: 'cash-outline',             label: 'Saldo Total',       val: kpisResumen && fmtMXN(kpisResumen.saldoTotalCuentas), trend: 'up',   txt: 'Cuentas act.'  },
-                { icon: 'trending-up-outline',      label: 'Transacciones Hoy', val: kpisResumen && fmt(kpisResumen.transaccionesHoy),     trend: 'up',   txt: 'Último día'    },
-                { icon: 'shield-outline',           label: 'Alertas Fraude',    val: kpisResumen && fmt(kpisResumen.fraudesPotenciales),   trend: 'down', txt: 'Potenciales'   },
+                { icon: 'people-outline',          label: 'Total Clientes',     val: kpisResumen && fmt(kpisResumen.totalClientes),        trend: 'up',   txt: 'Registrados'    },
+                { icon: 'checkmark-circle-outline', label: 'Cuentas Activas',   val: kpisResumen && fmt(kpisResumen.cuentasActivas),       trend: 'up',   txt: 'Vigentes'       },
+                { icon: 'cash-outline',             label: 'Saldo Total',       val: kpisResumen && fmtMXN(kpisResumen.saldoTotalCuentas), trend: 'up',   txt: 'Cuentas act.'   },
+                { icon: 'trending-up-outline',      label: 'Transacciones Hoy', val: kpisResumen && fmt(kpisResumen.transaccionesHoy),     trend: 'up',   txt: 'Último día'     },
+                { icon: 'shield-outline',           label: 'Alertas Fraude',    val: kpisResumen && fmt(kpisResumen.fraudesPotenciales),   trend: 'down', txt: 'Potenciales'    },
                 { icon: 'alert-circle-outline',     label: 'Cobros Excedidos',  val: kpisResumen && fmt(kpisResumen.cobrosExcedidos),      trend: 'warn', txt: 'Exceden límite' },
               ].map((kpi, i) => {
                 const tc = kpi.trend === 'up' ? '#00a278' : kpi.trend === 'down' ? '#ba1a1a' : '#fbbd08';
@@ -642,7 +512,7 @@ export default function Dashboard() {
             </ScrollView>
 
             <Text style={s.sectionTitle}>Alertas de riesgo</Text>
-            {soluciones.slice(0, 2).map((sol, idx) => (
+            {soluciones.slice(0, 2).map((sol: Solucion, idx: number) => (
               <View key={idx} style={s.debCard}>
                 <View style={s.debIconBox}>
                   <Ionicons name={(AREA_ICONS[sol.area] ?? 'alert-circle-outline') as any} size={22} color="#ba1a1a" />
@@ -671,7 +541,7 @@ export default function Dashboard() {
           </ScrollView>
         )}
 
-        {/* ══ KPIs ════════════════════════════════════════════════ */}
+        {/* ══ KPIs ════════════════════════════════════════════════════════════ */}
         {activeTab === 'KPIs' && (
           <ScrollView style={s.scrollBody} contentContainerStyle={s.scrollContent}
             showsVerticalScrollIndicator={false}
@@ -682,15 +552,14 @@ export default function Dashboard() {
 
             {/* ── TRANSACCIONES ── */}
             <Text style={s.sectionHeader}>TRANSACCIONES</Text>
+
             <View style={s.kpiDetailCard}>
               <View style={s.kpiCardHdr}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.cardTitle}>Tendencia mensual de fraudes</Text>
                   <Text style={s.cardSubtitle}>{fraudePorMes.length} meses</Text>
                 </View>
-                <TouchableOpacity style={s.kpiExportBtn} onPress={() => handleExportKpi('fraude-tendencia')} disabled={exportingKpi !== null || exportingAll}>
-                  {exportingKpi === 'fraude-tendencia' ? <ActivityIndicator size="small" color="#004481" /> : <Ionicons name="download-outline" size={16} color="#004481" />}
-                </TouchableOpacity>
+                <ExportBtn id="fraude-tendencia" exportingKpi={exportingKpi} exportingAll={exportingAll} onPress={() => handleExportKpi('fraude-tendencia')} />
               </View>
               {fraudePorMes.length > 0
                 ? <InteractiveLineChart
@@ -713,9 +582,7 @@ export default function Dashboard() {
                   <Text style={s.cardTitle}>Fraude por categoría</Text>
                   <Text style={s.cardSubtitle}>Barra roja = categoría más afectada</Text>
                 </View>
-                <TouchableOpacity style={s.kpiExportBtn} onPress={() => handleExportKpi('fraude-categoria')} disabled={exportingKpi !== null || exportingAll}>
-                  {exportingKpi === 'fraude-categoria' ? <ActivityIndicator size="small" color="#004481" /> : <Ionicons name="download-outline" size={16} color="#004481" />}
-                </TouchableOpacity>
+                <ExportBtn id="fraude-categoria" exportingKpi={exportingKpi} exportingAll={exportingAll} onPress={() => handleExportKpi('fraude-categoria')} />
               </View>
               {catSlice.length > 0 ? <>
                 <AnimatedBarChart
@@ -731,15 +598,49 @@ export default function Dashboard() {
               </> : <SkeletonCard lines={5} />}
             </View>
 
+            {/* ── ETL ── */}
+            <Text style={s.sectionHeader}>ETL PIPELINE</Text>
+            <View style={s.kpiDetailCard}>
+              <View style={s.kpiCardHdr}>
+                <Text style={[s.cardTitle, { flex: 1 }]}>Resumen análisis de fraude</Text>
+                <ExportBtn id="etl" exportingKpi={exportingKpi} exportingAll={exportingAll} onPress={() => handleExportKpi('etl')} />
+              </View>
+              {etlResumen ? (
+                <View style={{ gap: 10, marginTop: 8 }}>
+                  {[
+                    { label: 'Transacciones analizadas', val: fmt(etlResumen.total_transacciones) },
+                    { label: 'Fraudes detectados',        val: fmt(etlResumen.total_fraudes) },
+                    { label: 'Tasa de fraude',            val: `${etlResumen.tasa_fraude_pct?.toFixed(2)}%` },
+                    { label: 'Monto total en riesgo',     val: fmtMXN(etlResumen.monto_total_fraude) },
+                    { label: 'Monto promedio/fraude',     val: fmtMXN(etlResumen.monto_promedio_fraude) },
+                    { label: 'Monto máximo',              val: fmtMXN(etlResumen.monto_maximo_fraude) },
+                  ].map((row, i) => (
+                    <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#f0f2f5', paddingBottom: 8 }}>
+                      <Text style={{ fontSize: 13, color: '#5d5f5f', flex: 1 }}>{row.label}</Text>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#1a1c1c' }}>
+                        {hideAmounts && row.label.includes('onto') ? '•••••' : row.val}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : <SkeletonCard lines={5} />}
+            </View>
+
             {/* ── CLIENTES ── */}
             <Text style={s.sectionHeader}>CLIENTES</Text>
             <View style={s.sideBySideRow}>
               <View style={s.halfCard}>
-                <Text style={s.halfCardTitle}>Por segmento</Text>
+                <View style={s.kpiCardHdr}>
+                  <Text style={[s.halfCardTitle, { flex: 1 }]}>Por segmento</Text>
+                  <ExportBtn id="clientes-segmento" exportingKpi={exportingKpi} exportingAll={exportingAll} onPress={() => handleExportKpi('clientes-segmento')} />
+                </View>
                 {loadSeg ? <ActivityIndicator color="#004481" style={{ marginVertical: 20 }} /> : <DonutChart segments={donutSeg} size="small" />}
               </View>
               <View style={s.halfCard}>
-                <Text style={s.halfCardTitle}>Por género</Text>
+                <View style={s.kpiCardHdr}>
+                  <Text style={[s.halfCardTitle, { flex: 1 }]}>Por género</Text>
+                  <ExportBtn id="clientes-genero" exportingKpi={exportingKpi} exportingAll={exportingAll} onPress={() => handleExportKpi('clientes-genero')} />
+                </View>
                 {loadGen ? <ActivityIndicator color="#004481" style={{ marginVertical: 20 }} /> : <DonutChart segments={donutGen} size="small" />}
               </View>
             </View>
@@ -752,9 +653,7 @@ export default function Dashboard() {
                   <Text style={s.cardTitle}>Préstamos por tipo</Text>
                   <Text style={s.cardSubtitle}>Toca para ver detalle</Text>
                 </View>
-                <TouchableOpacity style={s.kpiExportBtn} onPress={() => handleExportKpi('prestamos')} disabled={exportingKpi !== null || exportingAll}>
-                  {exportingKpi === 'prestamos' ? <ActivityIndicator size="small" color="#004481" /> : <Ionicons name="download-outline" size={16} color="#004481" />}
-                </TouchableOpacity>
+                <ExportBtn id="prestamos" exportingKpi={exportingKpi} exportingAll={exportingAll} onPress={() => handleExportKpi('prestamos')} />
               </View>
               {loadPrest ? <SkeletonCard lines={4} /> : <>
                 <AnimatedBarChart data={prestamos.map((p: PrestamosPorTipo) => ({ label: p.tipo, value: p.total }))}
@@ -773,28 +672,18 @@ export default function Dashboard() {
             <View style={s.kpiDetailCard}>
               <View style={s.kpiCardHdr}>
                 <Text style={[s.cardTitle, { flex: 1 }]}>Saldo por tipo de cuenta</Text>
-                <TouchableOpacity style={s.kpiExportBtn} onPress={() => handleExportKpi('saldo-cuentas')} disabled={exportingKpi !== null || exportingAll}>
-                  {exportingKpi === 'saldo-cuentas' ? <ActivityIndicator size="small" color="#004481" /> : <Ionicons name="download-outline" size={16} color="#004481" />}
-                </TouchableOpacity>
+                <ExportBtn id="saldo-cuentas" exportingKpi={exportingKpi} exportingAll={exportingAll} onPress={() => handleExportKpi('saldo-cuentas')} />
               </View>
               {loadSaldo ? <SkeletonCard lines={3} /> : <>
                 <AnimatedBarChart data={saldoCuentas.map((c: SaldoPorTipoCuenta) => ({ label: c.tipo, value: Number(c.saldo_total) }))}
                   colorFn={(i) => PALETTE[i % PALETTE.length]} valueFormatter={(v) => hideAmounts ? '•••••' : fmtMXN(v)} />
-                {saldoMax && saldoMin && saldoMax.tipo !== saldoMin.tipo && (
-                  <View style={s.conclusionBox}>
-                    <Ionicons name="bulb-outline" size={15} color="#004481" style={{ flexShrink: 0, marginTop: 1 }} />
-                    <Text style={s.conclusionTxt}>{`La ${saldoMax.tipo} concentra la mayor liquidez del banco y requiere monitoreo constante.`}</Text>
-                  </View>
-                )}
               </>}
             </View>
 
             <View style={s.kpiDetailCard}>
               <View style={s.kpiCardHdr}>
-                <Text style={[s.cardTitle, { flex: 1 }]}>Distribución de Score Crediticio</Text>
-                <TouchableOpacity style={s.kpiExportBtn} onPress={() => handleExportKpi('score')} disabled={exportingKpi !== null || exportingAll}>
-                  {exportingKpi === 'score' ? <ActivityIndicator size="small" color="#004481" /> : <Ionicons name="download-outline" size={16} color="#004481" />}
-                </TouchableOpacity>
+                <Text style={[s.cardTitle, { flex: 1 }]}>Score Crediticio</Text>
+                <ExportBtn id="score" exportingKpi={exportingKpi} exportingAll={exportingAll} onPress={() => handleExportKpi('score')} />
               </View>
               {loadScore ? <SkeletonCard lines={4} /> : <>
                 <AnimatedBarChart data={scores.map((sc: ScoreCrediticio) => ({ label: sc.rango, value: sc.total }))}
@@ -814,9 +703,7 @@ export default function Dashboard() {
             <View style={s.kpiDetailCard}>
               <View style={s.kpiCardHdr}>
                 <Text style={[s.cardTitle, { flex: 1 }]}>Cobros excedidos por tipo</Text>
-                <TouchableOpacity style={s.kpiExportBtn} onPress={() => handleExportKpi('cobros')} disabled={exportingKpi !== null || exportingAll}>
-                  {exportingKpi === 'cobros' ? <ActivityIndicator size="small" color="#004481" /> : <Ionicons name="download-outline" size={16} color="#004481" />}
-                </TouchableOpacity>
+                <ExportBtn id="cobros" exportingKpi={exportingKpi} exportingAll={exportingAll} onPress={() => handleExportKpi('cobros')} />
               </View>
               {loadCob ? <SkeletonCard lines={3} /> : cobrosExc.length > 0
                 ? <AnimatedBarChart data={cobrosExc.map((c: CobrosExcedidos) => ({ label: c.tipo, value: c.total }))}
@@ -830,7 +717,6 @@ export default function Dashboard() {
             {/* ── CRÉDITO — TARJETAS ── */}
             <Text style={s.sectionHeader}>CRÉDITO — TARJETAS</Text>
 
-            {/* Utilización del crédito */}
             <View style={s.kpiDetailCard}>
               <View style={s.kpiCardHdr}>
                 <View style={{ flex: 1 }}>
@@ -841,11 +727,9 @@ export default function Dashboard() {
                       : 'Cargando...'}
                   </Text>
                 </View>
+                <ExportBtn id="utilizacion-credito" exportingKpi={exportingKpi} exportingAll={exportingAll} onPress={() => handleExportKpi('utilizacion-credito')} />
               </View>
-
-              {loadUtilRes ? (
-                <SkeletonCard lines={2} height={80} />
-              ) : utilizacionResumen ? (
+              {!loadUtilRes && utilizacionResumen ? (
                 <View style={{ gap: 12, marginTop: 8 }}>
                   <View>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -872,27 +756,20 @@ export default function Dashboard() {
                       <Text style={{ fontSize: 18, fontWeight: '800', color: '#004481' }}>
                         {hideAmounts ? '•••••' : fmtMXN(utilizacionResumen.saldo_total)}
                       </Text>
-                      <Text style={{ fontSize: 11, color: '#737781', marginTop: 2, textAlign: 'center' }}>
-                        {'Saldo total usado'}
-                      </Text>
+                      <Text style={{ fontSize: 11, color: '#737781', marginTop: 2, textAlign: 'center' }}>Saldo total usado</Text>
                     </View>
                     <View style={[s.halfCard, { alignItems: 'center' }]}>
                       <Text style={{ fontSize: 18, fontWeight: '800', color: '#00a278' }}>
                         {hideAmounts ? '•••••' : fmtMXN(utilizacionResumen.limite_total)}
                       </Text>
-                      <Text style={{ fontSize: 11, color: '#737781', marginTop: 2, textAlign: 'center' }}>
-                        {'Límite total otorgado'}
-                      </Text>
+                      <Text style={{ fontSize: 11, color: '#737781', marginTop: 2, textAlign: 'center' }}>Límite total otorgado</Text>
                     </View>
                   </View>
                 </View>
-              ) : null}
-
+              ) : <SkeletonCard lines={2} height={80} />}
               {!loadUtilCred && utilizacionCredito.length > 0 && (
                 <>
-                  <Text style={[s.cardSubtitle, { marginTop: 12, marginBottom: 4 }]}>
-                    {'Por tipo de tarjeta'}
-                  </Text>
+                  <Text style={[s.cardSubtitle, { marginTop: 12, marginBottom: 4 }]}>Por tipo de tarjeta</Text>
                   <AnimatedBarChart
                     data={utilizacionCredito.map(u => ({ label: u.tipo_tarjeta, value: u.utilizacion_promedio }))}
                     colorFn={(i) => {
@@ -903,125 +780,87 @@ export default function Dashboard() {
                   />
                 </>
               )}
-
               {conclusionUtilizacion && (
                 <View style={[s.conclusionBox, esAlertaUtilizacion && s.conclusionBoxAlert]}>
-                  <Ionicons
-                    name={esAlertaUtilizacion ? 'warning-outline' : 'bulb-outline'}
-                    size={15}
-                    color={esAlertaUtilizacion ? '#ba1a1a' : '#004481'}
-                    style={{ flexShrink: 0, marginTop: 1 }}
-                  />
+                  <Ionicons name={esAlertaUtilizacion ? 'warning-outline' : 'bulb-outline'} size={15}
+                    color={esAlertaUtilizacion ? '#ba1a1a' : '#004481'} style={{ flexShrink: 0, marginTop: 1 }} />
                   <Text style={s.conclusionTxt}>{conclusionUtilizacion}</Text>
                 </View>
               )}
             </View>
 
-            {/* Morosidad en tarjetas */}
             <View style={s.kpiDetailCard}>
               <View style={s.kpiCardHdr}>
                 <View style={{ flex: 1 }}>
-                  <Text style={s.cardTitle}>{'Morosidad en tarjetas de crédito'}</Text>
+                  <Text style={s.cardTitle}>Morosidad en tarjetas de crédito</Text>
                   <Text style={s.cardSubtitle}>
                     {morosidadResumen
-                      ? `${morosidadResumen.tasa_morosidad.toFixed(1)}% bloqueadas por impago · ${fmt(morosidadResumen.total_morosas)} tarjetas`
+                      ? `${morosidadResumen.tasa_morosidad.toFixed(1)}% bloqueadas · ${fmt(morosidadResumen.total_morosas)} tarjetas`
                       : 'Cargando...'}
                   </Text>
                 </View>
+                <ExportBtn id="morosidad-tarjetas" exportingKpi={exportingKpi} exportingAll={exportingAll} onPress={() => handleExportKpi('morosidad-tarjetas')} />
               </View>
-
               {!loadMorRes && morosidadResumen && (
                 <View style={s.sideBySideRow}>
                   <View style={[s.halfCard, { alignItems: 'center', backgroundColor: '#e6f7f0', borderColor: '#00a27830' }]}>
                     <Text style={{ fontSize: 22, fontWeight: '800', color: '#00a278' }}>
                       {fmt(morosidadResumen.total_activas - morosidadResumen.total_morosas)}
                     </Text>
-                    <Text style={{ fontSize: 11, color: '#00a278', marginTop: 2, fontWeight: '600' }}>
-                      {'Al corriente'}
-                    </Text>
+                    <Text style={{ fontSize: 11, color: '#00a278', marginTop: 2, fontWeight: '600' }}>Al corriente</Text>
                   </View>
                   <View style={[s.halfCard, { alignItems: 'center', backgroundColor: '#fbebeb', borderColor: '#ba1a1a30' }]}>
                     <Text style={{ fontSize: 22, fontWeight: '800', color: '#ba1a1a' }}>
                       {fmt(morosidadResumen.total_morosas)}
                     </Text>
-                    <Text style={{ fontSize: 11, color: '#ba1a1a', marginTop: 2, fontWeight: '600' }}>
-                      {'Bloqueadas'}
-                    </Text>
+                    <Text style={{ fontSize: 11, color: '#ba1a1a', marginTop: 2, fontWeight: '600' }}>Bloqueadas</Text>
                   </View>
                 </View>
               )}
-
-              {loadMorosidad ? <SkeletonCard lines={4} /> : morosidadTarjetas.length > 0 && (
-                <>
-                  <Text style={[s.cardSubtitle, { marginBottom: 4 }]}>
-                    {'Tarjetas bloqueadas por tipo'}
-                  </Text>
-                  <AnimatedBarChart
-                    data={morosidadTarjetas.map(m => ({ label: m.tipo_tarjeta, value: m.tasa_morosidad }))}
-                    colorFn={(i) => {
-                      const pct = morosidadTarjetas[i]?.tasa_morosidad ?? 0;
-                      return pct > 10 ? '#ba1a1a' : pct > 5 ? '#fbbd08' : '#00a278';
-                    }}
-                    valueFormatter={(v) => `${v.toFixed(1)}%`}
-                  />
-                </>
+              {!loadMorosidad && morosidadTarjetas.length > 0 && (
+                <AnimatedBarChart
+                  data={morosidadTarjetas.map(m => ({ label: m.tipo_tarjeta, value: m.tasa_morosidad }))}
+                  colorFn={(i) => (morosidadTarjetas[i]?.tasa_morosidad ?? 0) > 10 ? '#ba1a1a' : (morosidadTarjetas[i]?.tasa_morosidad ?? 0) > 5 ? '#fbbd08' : '#00a278'}
+                  valueFormatter={(v) => `${v.toFixed(1)}%`}
+                />
               )}
-
               {conclusionMorosidad && (
                 <View style={[s.conclusionBox, esAlertaMorosidad && s.conclusionBoxAlert]}>
-                  <Ionicons
-                    name={esAlertaMorosidad ? 'warning-outline' : 'checkmark-circle-outline'}
-                    size={15}
-                    color={esAlertaMorosidad ? '#ba1a1a' : '#004481'}
-                    style={{ flexShrink: 0, marginTop: 1 }}
-                  />
+                  <Ionicons name={esAlertaMorosidad ? 'warning-outline' : 'checkmark-circle-outline'} size={15}
+                    color={esAlertaMorosidad ? '#ba1a1a' : '#004481'} style={{ flexShrink: 0, marginTop: 1 }} />
                   <Text style={s.conclusionTxt}>{conclusionMorosidad}</Text>
                 </View>
               )}
             </View>
 
             {/* ── PRÉSTAMOS — PRICING ── */}
-            <Text style={s.sectionHeader}>{'PRÉSTAMOS — PRICING'}</Text>
+            <Text style={s.sectionHeader}>PRÉSTAMOS — PRICING</Text>
             <View style={s.kpiDetailCard}>
-              <Text style={s.cardTitle}>{'Tasa de interés promedio por tipo'}</Text>
-              <Text style={s.cardSubtitle}>{'Solo préstamos vigentes · % anual'}</Text>
-
+              <View style={s.kpiCardHdr}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.cardTitle}>Tasa de interés promedio por tipo</Text>
+                  <Text style={s.cardSubtitle}>Solo préstamos vigentes · % anual</Text>
+                </View>
+                <ExportBtn id="tasas-interes" exportingKpi={exportingKpi} exportingAll={exportingAll} onPress={() => handleExportKpi('tasas-interes')} />
+              </View>
               {loadTasas ? <SkeletonCard lines={4} /> : tasasInteres.length > 0 ? (
                 <>
                   <View style={{ gap: 0, marginTop: 10 }}>
-                    <View style={{
-                      flexDirection: 'row', paddingBottom: 6,
-                      borderBottomWidth: 2, borderBottomColor: '#e8effa',
-                    }}>
-                      <Text style={{ flex: 2, fontSize: 10, fontWeight: '700', color: '#737781' }}>{'TIPO'}</Text>
-                      <Text style={{ flex: 1, fontSize: 10, fontWeight: '700', color: '#737781', textAlign: 'right' }}>{'PROM.'}</Text>
-                      <Text style={{ flex: 1, fontSize: 10, fontWeight: '700', color: '#00a278', textAlign: 'right' }}>{'MÍN'}</Text>
-                      <Text style={{ flex: 1, fontSize: 10, fontWeight: '700', color: '#ba1a1a', textAlign: 'right' }}>{'MÁX'}</Text>
+                    <View style={{ flexDirection: 'row', paddingBottom: 6, borderBottomWidth: 2, borderBottomColor: '#e8effa' }}>
+                      <Text style={{ flex: 2, fontSize: 10, fontWeight: '700', color: '#737781' }}>TIPO</Text>
+                      <Text style={{ flex: 1, fontSize: 10, fontWeight: '700', color: '#737781', textAlign: 'right' }}>PROM.</Text>
+                      <Text style={{ flex: 1, fontSize: 10, fontWeight: '700', color: '#00a278', textAlign: 'right' }}>MÍN</Text>
+                      <Text style={{ flex: 1, fontSize: 10, fontWeight: '700', color: '#ba1a1a', textAlign: 'right' }}>MÁX</Text>
                     </View>
                     {tasasInteres.map((t, i) => (
-                      <View key={i} style={{
-                        flexDirection: 'row', paddingVertical: 8,
-                        borderBottomWidth: 1, borderBottomColor: '#f0f2f5',
-                        backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff',
-                      }}>
-                        <Text style={{ flex: 2, fontSize: 12, color: '#1a1c1c', fontWeight: '600' }} numberOfLines={1}>
-                          {t.tipo_prestamo}
-                        </Text>
-                        <Text style={{ flex: 1, fontSize: 13, fontWeight: '800', color: '#004481', textAlign: 'right' }}>
-                          {`${t.tasa_promedio.toFixed(1)}%`}
-                        </Text>
-                        <Text style={{ flex: 1, fontSize: 11, color: '#00a278', textAlign: 'right' }}>
-                          {`${t.tasa_minima.toFixed(1)}%`}
-                        </Text>
-                        <Text style={{ flex: 1, fontSize: 11, color: '#ba1a1a', textAlign: 'right' }}>
-                          {`${t.tasa_maxima.toFixed(1)}%`}
-                        </Text>
+                      <View key={i} style={{ flexDirection: 'row', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f0f2f5', backgroundColor: i % 2 === 0 ? '#fafafa' : '#fff' }}>
+                        <Text style={{ flex: 2, fontSize: 12, color: '#1a1c1c', fontWeight: '600' }} numberOfLines={1}>{t.tipo_prestamo}</Text>
+                        <Text style={{ flex: 1, fontSize: 13, fontWeight: '800', color: '#004481', textAlign: 'right' }}>{`${t.tasa_promedio.toFixed(1)}%`}</Text>
+                        <Text style={{ flex: 1, fontSize: 11, color: '#00a278', textAlign: 'right' }}>{`${t.tasa_minima.toFixed(1)}%`}</Text>
+                        <Text style={{ flex: 1, fontSize: 11, color: '#ba1a1a', textAlign: 'right' }}>{`${t.tasa_maxima.toFixed(1)}%`}</Text>
                       </View>
                     ))}
                   </View>
-                  <Text style={[s.cardSubtitle, { marginTop: 14, marginBottom: 4 }]}>
-                    {'Tasa promedio por producto'}
-                  </Text>
                   <AnimatedBarChart
                     data={tasasInteres.map(t => ({ label: t.tipo_prestamo, value: t.tasa_promedio }))}
                     colorFn={() => '#7c3aed'}
@@ -1029,30 +868,24 @@ export default function Dashboard() {
                   />
                   {conclusionTasas && (
                     <View style={s.conclusionBox}>
-                      <Ionicons
-                        name="trending-up-outline"
-                        size={15}
-                        color="#004481"
-                        style={{ flexShrink: 0, marginTop: 1 }}
-                      />
+                      <Ionicons name="trending-up-outline" size={15} color="#004481" style={{ flexShrink: 0, marginTop: 1 }} />
                       <Text style={s.conclusionTxt}>{conclusionTasas}</Text>
                     </View>
                   )}
                 </>
-              ) : (
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginVertical: 16 }}>
-                  <Ionicons name="information-circle-outline" size={16} color="#aaa" />
-                  <Text style={{ color: '#aaa', fontWeight: '600' }}>{'Sin datos de tasas'}</Text>
-                </View>
-              )}
+              ) : <SkeletonCard lines={4} />}
             </View>
 
             {/* ── METAS DE AHORRO ── */}
-            <Text style={s.sectionHeader}>{'METAS DE AHORRO'}</Text>
+            <Text style={s.sectionHeader}>METAS DE AHORRO</Text>
             <View style={s.kpiDetailCard}>
-              <Text style={s.cardTitle}>{'Distribución de metas por estatus'}</Text>
-              <Text style={s.cardSubtitle}>{'Completadas, activas, fallidas y canceladas'}</Text>
-
+              <View style={s.kpiCardHdr}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.cardTitle}>Distribución de metas por estatus</Text>
+                  <Text style={s.cardSubtitle}>Completadas, activas, fallidas y canceladas</Text>
+                </View>
+                <ExportBtn id="metas-estatus" exportingKpi={exportingKpi} exportingAll={exportingAll} onPress={() => handleExportKpi('metas-estatus')} />
+              </View>
               {loadMetasEst ? <SkeletonCard lines={3} /> : metasEstatus.length > 0 ? (
                 <>
                   <View style={[s.sideBySideRow, { flexWrap: 'wrap', marginTop: 10 }]}>
@@ -1062,131 +895,33 @@ export default function Dashboard() {
                       const color = esCompletada ? '#00a278' : esFallida ? '#ba1a1a' : '#004481';
                       const bg    = esCompletada ? '#e6f7f0'  : esFallida ? '#fbebeb'  : '#e8effa';
                       return (
-                        <View key={i} style={[s.halfCard, {
-                          alignItems: 'center', backgroundColor: bg,
-                          borderColor: color + '30', marginBottom: 8,
-                        }]}>
-                          <Text style={{ fontSize: 22, fontWeight: '800', color }}>
-                            {`${m.porcentaje.toFixed(1)}%`}
-                          </Text>
-                          <Text style={{ fontSize: 11, fontWeight: '700', color, marginTop: 2, textAlign: 'center' }}>
-                            {m.estatus}
-                          </Text>
-                          <Text style={{ fontSize: 10, color: '#737781', marginTop: 1 }}>
-                            {`${fmt(m.total)} metas`}
-                          </Text>
+                        <View key={i} style={[s.halfCard, { alignItems: 'center', backgroundColor: bg, borderColor: color + '30', marginBottom: 8 }]}>
+                          <Text style={{ fontSize: 22, fontWeight: '800', color }}>{`${m.porcentaje.toFixed(1)}%`}</Text>
+                          <Text style={{ fontSize: 11, fontWeight: '700', color, marginTop: 2, textAlign: 'center' }}>{m.estatus}</Text>
+                          <Text style={{ fontSize: 10, color: '#737781', marginTop: 1 }}>{`${fmt(m.total)} metas`}</Text>
                         </View>
                       );
                     })}
                   </View>
-
                   <DonutChart
-                    segments={metasEstatus.map((m, i) => {
-                      const esCompletada = m.estatus?.toLowerCase().includes('complet');
-                      const esFallida    = m.estatus?.toLowerCase().includes('fall');
-                      return {
-                        label:      m.estatus,
-                        percentage: Math.round(m.porcentaje * 10) / 10,
-                        color: esCompletada ? '#00a278'
-                             : esFallida    ? '#ba1a1a'
-                             : ['#004481', '#fbbd08', '#7c3aed'][i % 3],
-                      };
-                    })}
+                    segments={metasEstatus.map((m, i) => ({
+                      label:      m.estatus,
+                      percentage: Math.round(m.porcentaje * 10) / 10,
+                      color: m.estatus?.toLowerCase().includes('complet') ? '#00a278'
+                           : m.estatus?.toLowerCase().includes('fall')    ? '#ba1a1a'
+                           : ['#004481', '#fbbd08', '#7c3aed'][i % 3],
+                    }))}
                     size="large"
                   />
                 </>
               ) : <SkeletonCard lines={3} />}
-
               {conclusionMetas && (
                 <View style={[s.conclusionBox, esAlertaMetas && s.conclusionBoxAlert]}>
-                  <Ionicons
-                    name={esAlertaMetas ? 'warning-outline' : 'checkmark-circle-outline'}
-                    size={15}
-                    color={esAlertaMetas ? '#ba1a1a' : '#004481'}
-                    style={{ flexShrink: 0, marginTop: 1 }}
-                  />
+                  <Ionicons name={esAlertaMetas ? 'warning-outline' : 'checkmark-circle-outline'} size={15}
+                    color={esAlertaMetas ? '#ba1a1a' : '#004481'} style={{ flexShrink: 0, marginTop: 1 }} />
                   <Text style={s.conclusionTxt}>{conclusionMetas}</Text>
                 </View>
               )}
-            </View>
-
-            {!loadMetasProg && metasProgreso && (
-              <View style={s.kpiDetailCard}>
-                <Text style={s.cardTitle}>{'Progreso promedio de metas activas'}</Text>
-                <Text style={s.cardSubtitle}>{'Avance real vs objetivo en metas en curso'}</Text>
-                <View style={{ marginTop: 14, gap: 10 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-                    <View style={{ flex: 1, height: 14, backgroundColor: '#e8effa', borderRadius: 7, overflow: 'hidden' }}>
-                      <View style={{
-                        width: `${Math.min(metasProgreso.progreso_promedio, 100)}%`,
-                        height: '100%', borderRadius: 7,
-                        backgroundColor: metasProgreso.progreso_promedio >= 75 ? '#00a278'
-                                       : metasProgreso.progreso_promedio >= 40 ? '#004481' : '#fbbd08',
-                      }} />
-                    </View>
-                    <Text style={{ fontSize: 26, fontWeight: '800', color: '#004481', minWidth: 60, textAlign: 'right' }}>
-                      {`${metasProgreso.progreso_promedio.toFixed(1)}%`}
-                    </Text>
-                  </View>
-                  <View style={s.sideBySideRow}>
-                    <View style={[s.halfCard, { alignItems: 'center' }]}>
-                      <Text style={{ fontSize: 18, fontWeight: '800', color: '#00a278' }}>
-                        {hideAmounts ? '•••••' : fmtMXN(metasProgreso.monto_actual_total)}
-                      </Text>
-                      <Text style={{ fontSize: 11, color: '#737781', marginTop: 2, textAlign: 'center' }}>
-                        {'Ahorrado hasta ahora'}
-                      </Text>
-                    </View>
-                    <View style={[s.halfCard, { alignItems: 'center' }]}>
-                      <Text style={{ fontSize: 18, fontWeight: '800', color: '#004481' }}>
-                        {hideAmounts ? '•••••' : fmtMXN(metasProgreso.monto_objetivo_total)}
-                      </Text>
-                      <Text style={{ fontSize: 11, color: '#737781', marginTop: 2, textAlign: 'center' }}>
-                        {'Objetivo total'}
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={s.conclusionBox}>
-                    <Ionicons name="wallet-outline" size={15} color="#004481" style={{ flexShrink: 0, marginTop: 1 }} />
-                    <Text style={s.conclusionTxt}>
-                      {`${fmt(metasProgreso.total_activas)} metas en curso han alcanzado el ${metasProgreso.progreso_promedio.toFixed(1)}% de su objetivo. `}
-                      {metasProgreso.progreso_promedio >= 75
-                        ? 'Gran parte de los clientes están cerca de completar sus metas.'
-                        : 'Activar recordatorios y microincentivos puede acelerar el cierre.'}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            )}
-
-            {/* ── ETL ── */}
-            <Text style={s.sectionHeader}>ETL PIPELINE</Text>
-            <View style={s.kpiDetailCard}>
-              <View style={s.kpiCardHdr}>
-                <Text style={[s.cardTitle, { flex: 1 }]}>Resumen análisis de fraude</Text>
-                <TouchableOpacity style={s.kpiExportBtn} onPress={() => handleExportKpi('etl')} disabled={exportingKpi !== null || exportingAll}>
-                  {exportingKpi === 'etl' ? <ActivityIndicator size="small" color="#004481" /> : <Ionicons name="download-outline" size={16} color="#004481" />}
-                </TouchableOpacity>
-              </View>
-              {etlResumen ? (
-                <View style={{ gap: 10, marginTop: 8 }}>
-                  {[
-                    { label: 'Transacciones analizadas', val: fmt(etlResumen.total_transacciones) },
-                    { label: 'Fraudes detectados',        val: fmt(etlResumen.total_fraudes) },
-                    { label: 'Tasa de fraude',            val: `${etlResumen.tasa_fraude_pct?.toFixed(2)}%` },
-                    { label: 'Monto total en riesgo',     val: fmtMXN(etlResumen.monto_total_fraude) },
-                    { label: 'Monto promedio/fraude',     val: fmtMXN(etlResumen.monto_promedio_fraude) },
-                    { label: 'Monto máximo',              val: fmtMXN(etlResumen.monto_maximo_fraude) },
-                  ].map((row, i) => (
-                    <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#f0f2f5', paddingBottom: 8 }}>
-                      <Text style={{ fontSize: 13, color: '#5d5f5f', flex: 1 }}>{row.label}</Text>
-                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#1a1c1c' }}>
-                        {hideAmounts && row.label.includes('onto') ? '•••••' : row.val}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              ) : <SkeletonCard lines={5} />}
             </View>
 
             {/* ── GEOGRAFÍA ── */}
@@ -1205,45 +940,26 @@ export default function Dashboard() {
             {/* ── COMERCIOS ── */}
             <Text style={s.sectionHeader}>COMERCIOS</Text>
             {loadCom
-            ? <>{[1, 2, 3].map(i => <SkeletonCard key={i} height={130} lines={3} />)}</>
-            : fraudeComercio.length > 0 ? <>
-
-                {/* Top 5 fijos */}
-                {fraudeComercio.slice(0, 5).map((item, idx) => (
-                    <ComercioCard
-                    key={idx} item={item} idx={idx}
-                    expandedId={expandedComercioId} setExpandedId={setExpandedComercioId}
-                    />
-                ))}
-
-                {/* Botón ver todos */}
-                {fraudeComercio.length > 5 && (
-                    <TouchableOpacity
-                    onPress={() => setComerciosModalVisible(true)}
-                    style={{
-                        flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-                        gap: 8, backgroundColor: '#fff', borderRadius: 14, padding: 16,
-                        marginBottom: 14, borderWidth: 1, borderColor: '#004481',
-                    }}
-                    >
-                    <Ionicons name="storefront-outline" size={18} color="#004481" />
-                    <Text style={{ fontSize: 14, fontWeight: '700', color: '#004481' }}>
+              ? <>{[1, 2, 3].map(i => <SkeletonCard key={i} height={130} lines={3} />)}</>
+              : fraudeComercio.length > 0 ? <>
+                  {fraudeComercio.slice(0, 5).map((item, idx) => (
+                    <ComercioCard key={idx} item={item} idx={idx} expandedId={expandedComercioId} setExpandedId={setExpandedComercioId} />
+                  ))}
+                  {fraudeComercio.length > 5 && (
+                    <TouchableOpacity onPress={() => setComerciosModalVisible(true)}
+                      style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#fff', borderRadius: 14, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: '#004481' }}>
+                      <Ionicons name="storefront-outline" size={18} color="#004481" />
+                      <Text style={{ fontSize: 14, fontWeight: '700', color: '#004481' }}>
                         Ver los {fraudeComercio.length - 5} comercios restantes
-                    </Text>
-                    <Ionicons name="chevron-forward" size={16} color="#004481" />
+                      </Text>
+                      <Ionicons name="chevron-forward" size={16} color="#004481" />
                     </TouchableOpacity>
-                )}
-
-                {/* Modal completo */}
-                <ComerciosModal
-                    data={fraudeComercio}
-                    visible={comerciosModalVisible}
-                    onClose={() => setComerciosModalVisible(false)}
-                />
+                  )}
+                  <ComerciosModal data={fraudeComercio} visible={comerciosModalVisible} onClose={() => setComerciosModalVisible(false)} />
                 </>
-            : <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginVertical: 16 }}>
-                <Ionicons name="storefront-outline" size={16} color="#aaa" />
-                <Text style={{ color: '#aaa', fontWeight: '600' }}>Sin datos de comercios</Text>
+              : <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginVertical: 16 }}>
+                  <Ionicons name="storefront-outline" size={16} color="#aaa" />
+                  <Text style={{ color: '#aaa', fontWeight: '600' }}>Sin datos de comercios</Text>
                 </View>}
 
             {/* ── PAGOS ── */}
@@ -1252,11 +968,9 @@ export default function Dashboard() {
               <View style={s.kpiCardHdr}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.cardTitle}>Tasa de éxito en pagos</Text>
-                  <Text style={s.cardSubtitle}>Confiabilidad operativa · exitosos vs fallidos</Text>
+                  <Text style={s.cardSubtitle}>Confiabilidad operativa</Text>
                 </View>
-                <TouchableOpacity style={s.kpiExportBtn} onPress={() => handleExportKpi('pagos-estatus')} disabled={exportingKpi !== null || exportingAll}>
-                  {exportingKpi === 'pagos-estatus' ? <ActivityIndicator size="small" color="#004481" /> : <Ionicons name="download-outline" size={16} color="#004481" />}
-                </TouchableOpacity>
+                <ExportBtn id="pagos-estatus" exportingKpi={exportingKpi} exportingAll={exportingAll} onPress={() => handleExportKpi('pagos-estatus')} />
               </View>
               {loadPagosEst ? <SkeletonCard lines={3} /> : pagosPorEstatus.length > 0 ? <>
                 <AnimatedBarChart data={pagosPorEstatus.map(d => ({ label: d.estatus, value: d.total }))}
@@ -1271,21 +985,23 @@ export default function Dashboard() {
                         color={esRiesgo ? '#ba1a1a' : '#004481'} style={{ flexShrink: 0, marginTop: 1 }} />
                       <Text style={s.conclusionTxt}>
                         {esRiesgo
-                          ? `Tasa de éxito del ${exitoso.porcentaje.toFixed(1)}%, por debajo del 95% recomendado. Revisar integración con redes de pago.`
-                          : `El ${exitoso.porcentaje.toFixed(1)}% de los pagos se procesan exitosamente. Infraestructura operando con normalidad.`}
+                          ? `Tasa de éxito del ${exitoso.porcentaje.toFixed(1)}%, por debajo del 95% recomendado.`
+                          : `El ${exitoso.porcentaje.toFixed(1)}% de los pagos se procesan exitosamente.`}
                       </Text>
                     </View>
                   );
                 })()}
-              </> : <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginVertical: 16 }}>
-                <Ionicons name="information-circle-outline" size={16} color="#aaa" />
-                <Text style={{ color: '#aaa', fontWeight: '600' }}>Sin datos de pagos</Text>
-              </View>}
+              </> : null}
             </View>
 
             <View style={s.kpiDetailCard}>
-              <Text style={s.cardTitle}>Canal de pago más utilizado</Text>
-              <Text style={s.cardSubtitle}>Preferencias del cliente · infraestructura prioritaria</Text>
+              <View style={s.kpiCardHdr}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.cardTitle}>Canal de pago más utilizado</Text>
+                  <Text style={s.cardSubtitle}>Preferencias del cliente</Text>
+                </View>
+                <ExportBtn id="pagos-canal" exportingKpi={exportingKpi} exportingAll={exportingAll} onPress={() => handleExportKpi('pagos-canal')} />
+              </View>
               {loadPagosCan ? <SkeletonCard lines={3} /> : pagosPorCanal.length > 0 ? <>
                 <AnimatedBarChart data={pagosPorCanal.map(d => ({ label: d.canal, value: d.total }))}
                   colorFn={(i) => PALETTE[i % PALETTE.length]} valueFormatter={fmt} />
@@ -1297,15 +1013,12 @@ export default function Dashboard() {
                       <Ionicons name="bulb-outline" size={15} color="#004481" style={{ flexShrink: 0, marginTop: 1 }} />
                       <Text style={s.conclusionTxt}>
                         {`${top.canal} es el canal dominante con el ${top.porcentaje.toFixed(1)}% de los pagos.`}
-                        {digital > 0 ? ` Canales digitales: ${digital.toFixed(1)}% del volumen total.` : ''}
+                        {digital > 0 ? ` Canales digitales: ${digital.toFixed(1)}%.` : ''}
                       </Text>
                     </View>
                   );
                 })()}
-              </> : <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginVertical: 16 }}>
-                <Ionicons name="information-circle-outline" size={16} color="#aaa" />
-                <Text style={{ color: '#aaa', fontWeight: '600' }}>Sin datos de canales de pago</Text>
-              </View>}
+              </> : null}
             </View>
 
             {/* ── SEGUROS & AHORRO ── */}
@@ -1314,11 +1027,9 @@ export default function Dashboard() {
               <View style={s.kpiCardHdr}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.cardTitle}>Pólizas activas vs canceladas</Text>
-                  <Text style={s.cardSubtitle}>Retención del portafolio de seguros</Text>
+                  <Text style={s.cardSubtitle}>Retención del portafolio</Text>
                 </View>
-                <TouchableOpacity style={s.kpiExportBtn} onPress={() => handleExportKpi('seguros-estatus')} disabled={exportingKpi !== null || exportingAll}>
-                  {exportingKpi === 'seguros-estatus' ? <ActivityIndicator size="small" color="#004481" /> : <Ionicons name="download-outline" size={16} color="#004481" />}
-                </TouchableOpacity>
+                <ExportBtn id="seguros-estatus" exportingKpi={exportingKpi} exportingAll={exportingAll} onPress={() => handleExportKpi('seguros-estatus')} />
               </View>
               {loadSegEst ? <SkeletonCard lines={3} /> : segurosPorEstatus.length > 0 ? <>
                 <View style={s.sideBySideRow}>
@@ -1334,52 +1045,8 @@ export default function Dashboard() {
                     );
                   })}
                 </View>
-                {(() => {
-                  const activas    = segurosPorEstatus.find(s => s.estatus?.toLowerCase().includes('activ'));
-                  const canceladas = segurosPorEstatus.find(s => s.estatus?.toLowerCase().includes('cancel'));
-                  if (!activas) return null;
-                  const esRiesgo = canceladas && canceladas.porcentaje > 15;
-                  return (
-                    <View style={[s.conclusionBox, esRiesgo ? s.conclusionBoxAlert : {}]}>
-                      <Ionicons name={esRiesgo ? 'warning-outline' : 'bulb-outline'} size={15}
-                        color={esRiesgo ? '#ba1a1a' : '#004481'} style={{ flexShrink: 0, marginTop: 1 }} />
-                      <Text style={s.conclusionTxt}>
-                        {esRiesgo
-                          ? `Cancelación del ${canceladas!.porcentaje.toFixed(1)}%, supera el umbral del 15%. Revisar estrategia de retención.`
-                          : `El ${activas.porcentaje.toFixed(1)}% de las pólizas se mantienen activas.`}
-                      </Text>
-                    </View>
-                  );
-                })()}
               </> : <SkeletonCard lines={3} />}
             </View>
-
-            {primaAnual && (
-              <View style={s.kpiDetailCard}>
-                <Text style={s.cardTitle}>Prima anual promedio</Text>
-                <Text style={s.cardSubtitle}>Rentabilidad del portafolio de seguros</Text>
-                <View style={[s.sideBySideRow, { marginTop: 12 }]}>
-                  <View style={[s.halfCard, { alignItems: 'center' }]}>
-                    <Text style={{ fontSize: 22, fontWeight: '800', color: '#004481' }}>
-                      {hideAmounts ? '•••••' : fmtMXN(primaAnual.prima_promedio)}
-                    </Text>
-                    <Text style={{ fontSize: 11, color: '#737781', marginTop: 4, textAlign: 'center' }}>Prima anual promedio</Text>
-                  </View>
-                  <View style={[s.halfCard, { alignItems: 'center' }]}>
-                    <Text style={{ fontSize: 22, fontWeight: '800', color: '#00a278' }}>
-                      {hideAmounts ? '•••••' : fmtMXN(primaAnual.prima_total)}
-                    </Text>
-                    <Text style={{ fontSize: 11, color: '#737781', marginTop: 4, textAlign: 'center' }}>Ingreso total en primas</Text>
-                  </View>
-                </View>
-                <View style={s.conclusionBox}>
-                  <Ionicons name="cash-outline" size={15} color="#004481" style={{ flexShrink: 0, marginTop: 1 }} />
-                  <Text style={s.conclusionTxt}>
-                    {`Portafolio de ${fmt(primaAnual.total_polizas)} pólizas genera ${hideAmounts ? '•••••' : fmtMXN(primaAnual.prima_total)} en primas anuales.`}
-                  </Text>
-                </View>
-              </View>
-            )}
 
             {/* ── COMUNICACIÓN ── */}
             <Text style={s.sectionHeader}>COMUNICACIÓN</Text>
@@ -1387,37 +1054,24 @@ export default function Dashboard() {
               <View style={s.kpiCardHdr}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.cardTitle}>Tasa de entrega de notificaciones</Text>
-                  <Text style={s.cardSubtitle}>Efectividad del canal de comunicación</Text>
+                  <Text style={s.cardSubtitle}>Efectividad del canal</Text>
                 </View>
-                <TouchableOpacity style={s.kpiExportBtn} onPress={() => handleExportKpi('notificaciones-estatus')} disabled={exportingKpi !== null || exportingAll}>
-                  {exportingKpi === 'notificaciones-estatus' ? <ActivityIndicator size="small" color="#004481" /> : <Ionicons name="download-outline" size={16} color="#004481" />}
-                </TouchableOpacity>
+                <ExportBtn id="notificaciones-estatus" exportingKpi={exportingKpi} exportingAll={exportingAll} onPress={() => handleExportKpi('notificaciones-estatus')} />
               </View>
               {loadNotiEst ? <SkeletonCard lines={3} /> : notiEstatus.length > 0 ? <>
                 <AnimatedBarChart data={notiEstatus.map(d => ({ label: d.estatus, value: d.total }))}
                   colorFn={(i) => ['#00a278', '#ba1a1a', '#fbbd08'][i] ?? PALETTE[i]} valueFormatter={fmt} />
-                {(() => {
-                  const entregadas = notiEstatus.find(n => n.estatus?.toLowerCase().includes('entreg'));
-                  if (!entregadas) return null;
-                  const esOk = entregadas.porcentaje >= 90;
-                  return (
-                    <View style={[s.conclusionBox, !esOk && s.conclusionBoxAlert]}>
-                      <Ionicons name={esOk ? 'checkmark-circle-outline' : 'warning-outline'} size={15}
-                        color={esOk ? '#004481' : '#ba1a1a'} style={{ flexShrink: 0, marginTop: 1 }} />
-                      <Text style={s.conclusionTxt}>
-                        {esOk
-                          ? `El ${entregadas.porcentaje.toFixed(1)}% de notificaciones llegan al cliente.`
-                          : `Solo el ${entregadas.porcentaje.toFixed(1)}% se entregan. Revisar tokens push.`}
-                      </Text>
-                    </View>
-                  );
-                })()}
               </> : <SkeletonCard lines={3} />}
             </View>
 
             <View style={s.kpiDetailCard}>
-              <Text style={s.cardTitle}>Canal de mayor alcance</Text>
-              <Text style={s.cardSubtitle}>Optimización de la estrategia de comunicación</Text>
+              <View style={s.kpiCardHdr}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.cardTitle}>Canal de mayor alcance</Text>
+                  <Text style={s.cardSubtitle}>Estrategia de comunicación</Text>
+                </View>
+                <ExportBtn id="notificaciones-canal" exportingKpi={exportingKpi} exportingAll={exportingAll} onPress={() => handleExportKpi('notificaciones-canal')} />
+              </View>
               {loadNotiCan ? <SkeletonCard lines={3} /> : notiCanal.length > 0 ? <>
                 <DonutChart
                   segments={notiCanal.map((n, i) => ({ label: n.canal, percentage: Math.round(n.porcentaje * 10) / 10, color: ['#004481','#1973B8','#48A9E6','#00a86b'][i % 4] }))}
@@ -1428,9 +1082,7 @@ export default function Dashboard() {
                   return (
                     <View style={s.conclusionBox}>
                       <Ionicons name="megaphone-outline" size={15} color="#004481" style={{ flexShrink: 0, marginTop: 1 }} />
-                      <Text style={s.conclusionTxt}>
-                        {`${top.canal} lidera con ${top.porcentaje.toFixed(1)}% del alcance. Priorizar en campañas de retención.`}
-                      </Text>
+                      <Text style={s.conclusionTxt}>{`${top.canal} lidera con ${top.porcentaje.toFixed(1)}% del alcance.`}</Text>
                     </View>
                   );
                 })()}
@@ -1443,11 +1095,9 @@ export default function Dashboard() {
               <View style={s.kpiCardHdr}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.cardTitle}>Nuevas cuentas por sucursal</Text>
-                  <Text style={s.cardSubtitle}>Desempeño comercial regional · todas las cuentas</Text>
+                  <Text style={s.cardSubtitle}>Desempeño comercial regional</Text>
                 </View>
-                <TouchableOpacity style={s.kpiExportBtn} onPress={() => handleExportKpi('sucursales')} disabled={exportingKpi !== null || exportingAll}>
-                  {exportingKpi === 'sucursales' ? <ActivityIndicator size="small" color="#004481" /> : <Ionicons name="download-outline" size={16} color="#004481" />}
-                </TouchableOpacity>
+                <ExportBtn id="sucursales" exportingKpi={exportingKpi} exportingAll={exportingAll} onPress={() => handleExportKpi('sucursales')} />
               </View>
               {loadSucursal ? <SkeletonCard lines={5} /> : cuentasSucursal.length > 0 ? <>
                 <AnimatedBarChart
@@ -1455,70 +1105,24 @@ export default function Dashboard() {
                   colorFn={(i) => i === 0 ? '#004481' : i === 1 ? '#1973B8' : i === 2 ? '#48A9E6' : '#b0c8e8'}
                   valueFormatter={fmt}
                 />
-                {(() => {
-                  const sorted = [...cuentasSucursal].sort((a, b) => b.nuevas_cuentas - a.nuevas_cuentas);
-                  const top3   = sorted.slice(0, 3);
-                  const bottom = sorted[sorted.length - 1];
-                  return (
-                    <View style={s.conclusionBox}>
-                      <Ionicons name="podium-outline" size={15} color="#004481" style={{ flexShrink: 0, marginTop: 1 }} />
-                      <Text style={s.conclusionTxt}>
-                        `Sucursales con mayor captación: ${top3.map(s => s.sucursal).join(', ')}. ${bottom.sucursal} tiene el menor volumen y puede beneficiarse de apoyo comercial.`
-                      </Text>
-                    </View>
-                  );
-                })()}
               </> : <SkeletonCard lines={5} />}
-            </View>
-
-            <View style={s.kpiDetailCard}>
-              <Text style={s.cardTitle}>Penetración de nómina BBVA</Text>
-              <Text style={s.cardSubtitle}>% de empresas que procesan su nómina con BBVA</Text>
-              {loadNomina ? <SkeletonCard lines={4} /> : nominaRes ? <>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginVertical: 12 }}>
-                  <View style={{ flex: 1, height: 12, backgroundColor: '#e8effa', borderRadius: 6, overflow: 'hidden' }}>
-                    <View style={{
-                      width: `${nominaRes.porcentaje_penetracion}%`, height: '100%', borderRadius: 6,
-                      backgroundColor: nominaRes.porcentaje_penetracion >= 50 ? '#00a278' : nominaRes.porcentaje_penetracion >= 30 ? '#fbbd08' : '#ba1a1a',
-                    }} />
-                  </View>
-                  <Text style={{ fontSize: 22, fontWeight: '800', color: '#004481', minWidth: 56, textAlign: 'right' }}>
-                    {nominaRes.porcentaje_penetracion.toFixed(1)}%
-                  </Text>
-                </View>
-                <View style={[s.sideBySideRow, { marginTop: 0 }]}>
-                  <View style={[s.halfCard, { alignItems: 'center', backgroundColor: '#e6f7f0', borderColor: '#00a27830' }]}>
-                    <Text style={{ fontSize: 20, fontWeight: '800', color: '#00a278' }}>{fmt(nominaRes.con_nomina_bbva)}</Text>
-                    <Text style={{ fontSize: 11, color: '#5d5f5f', marginTop: 2, textAlign: 'center' }}>Con nómina BBVA</Text>
-                  </View>
-                  <View style={[s.halfCard, { alignItems: 'center', backgroundColor: '#f4f6fa', borderColor: '#c2c6d250' }]}>
-                    <Text style={{ fontSize: 20, fontWeight: '800', color: '#737781' }}>{fmt(nominaRes.sin_nomina_bbva)}</Text>
-                    <Text style={{ fontSize: 11, color: '#5d5f5f', marginTop: 2, textAlign: 'center' }}>Oportunidad</Text>
-                  </View>
-                </View>
-                <View style={s.conclusionBox}>
-                  <Ionicons name="briefcase-outline" size={15} color="#004481" style={{ flexShrink: 0, marginTop: 1 }} />
-                  <Text style={s.conclusionTxt}>
-                    {nominaRes.porcentaje_penetracion >= 50
-                      ? 'Penetración de nómina BBVA supera el 50%. Facilita el cross-selling de otros servicios.'
-                      : `${fmt(nominaRes.sin_nomina_bbva)} empresas aún no procesan nómina con BBVA. Oportunidad de crecimiento.`}
-                  </Text>
-                </View>
-              </> : <SkeletonCard lines={4} />}
             </View>
 
             <View style={{ height: 40 }} />
           </ScrollView>
         )}
 
+        {/* Botón flotante exportar todo */}
         {activeTab === 'KPIs' && (
           <TouchableOpacity style={s.floatingExportBtn} onPress={handleExportAll}
             disabled={exportingKpi !== null || exportingAll} activeOpacity={0.85}>
-            <Ionicons name="document-outline" size={24} color="#fff" />
+            {exportingAll
+              ? <ActivityIndicator color="#fff" />
+              : <Ionicons name="document-outline" size={24} color="#fff" />}
           </TouchableOpacity>
         )}
 
-        {/* ══ DEBILIDADES ═════════════════════════════════════════ */}
+        {/* ══ DEBILIDADES ═════════════════════════════════════════════════════ */}
         {activeTab === 'Debilidades' && (
           <ScrollView style={s.scrollBody} contentContainerStyle={s.scrollContent}
             showsVerticalScrollIndicator={false}
@@ -1555,7 +1159,7 @@ export default function Dashboard() {
             {soluciones.length > 0 && (
               <>
                 <Text style={[s.sectionHeader, { marginTop: 24 }]}>PLANES DE ACCIÓN</Text>
-                {soluciones.map((sol, idx) => (
+                {soluciones.map((sol: Solucion, idx: number) => (
                   <DebCard key={idx} sol={sol} idx={idx} expandedId={expandedDebId} setExpandedId={setExpandedDebId} />
                 ))}
               </>
@@ -1570,7 +1174,7 @@ export default function Dashboard() {
           </ScrollView>
         )}
 
-        {/* ══ OBJETIVOS ═══════════════════════════════════════════ */}
+        {/* ══ OBJETIVOS ══════════════════════════════════════════════════════ */}
         {activeTab === 'Objetivos' && (
           <ScrollView style={s.scrollBody} contentContainerStyle={s.scrollContent}
             showsVerticalScrollIndicator={false}
@@ -1618,7 +1222,7 @@ export default function Dashboard() {
         )}
       </View>
 
-      {/* Modal de carga */}
+      {/* Modal de carga PDF */}
       <Modal visible={exportingKpi !== null || exportingAll} transparent animationType="fade">
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.45)' }}>
           <View style={{ backgroundColor: '#fff', borderRadius: 20, padding: 28, alignItems: 'center', gap: 14, elevation: 10, minWidth: 200 }}>
