@@ -12,6 +12,8 @@ import { loginRequest } from '@/src/features/auth/auth.service';
 import { useAuthStore } from '@/src/store/auth.store';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
+import * as LocalAuthentication from 'expo-local-authentication';
+import * as SecureStore from 'expo-secure-store';
 
 // ── Logo SVG BBVA ────────────────────────────────────────────
 function BbvaLogo() {
@@ -85,6 +87,7 @@ export default function LoginScreen() {
   const [loading,    setLoading]    = useState(false);
   const [showPwd,    setShowPwd]    = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
 
   // ── Animación de entrada ─────────────────────────────────────
   const cardOpacity   = useRef(new Animated.Value(0)).current;
@@ -96,6 +99,42 @@ export default function LoginScreen() {
       Animated.timing(cardTranslate, { toValue: 0, duration: 400, delay: 100, useNativeDriver: true }),
     ]).start();
   }, []);
+
+  useEffect(() => {
+    checkBiometric();
+  }, []);
+
+  const checkBiometric = async () => {
+    const compatible = await LocalAuthentication.hasHardwareAsync();
+    const enrolled   = await LocalAuthentication.isEnrolledAsync();
+    // Solo muestra el botón si hay hardware Y huella registrada
+    setBiometricAvailable(compatible && enrolled);
+  };
+
+  const handleBiometric = async () => {
+  const result = await LocalAuthentication.authenticateAsync({
+      promptMessage:         'Inicia sesión con tu huella',
+      fallbackLabel:         'Usar contraseña',
+      cancelLabel:           'Cancelar',
+      disableDeviceFallback: false,
+    });
+
+    if (result.success) {
+      const token = await SecureStore.getItemAsync('access_token');
+      const raw   = await SecureStore.getItemAsync('admin_payload');
+
+      if (token && raw) {
+        const admin = JSON.parse(raw);
+        await login(token, admin);
+        // Pequeño delay para que el Root Layout esté montado
+        setTimeout(() => {
+          router.replace('/(main)/dashboard');
+        }, 100);
+      } else {
+        setLoginError('No hay sesión guardada. Inicia sesión con tu contraseña primero.');
+      }
+    }
+  };
 
   const { control, handleSubmit, formState: { errors } } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -218,6 +257,37 @@ export default function LoginScreen() {
               </TouchableOpacity>
 
               {/* Links */}
+              {biometricAvailable && (
+                <>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 16 }}>
+                    <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(194,198,210,0.5)' }} />
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: '#737781' }}>O BIEN</Text>
+                    <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(194,198,210,0.5)' }} />
+                  </View>
+
+                  <TouchableOpacity
+                    onPress={handleBiometric}
+                    activeOpacity={0.85}
+                    style={{
+                      flexDirection:  'row',
+                      alignItems:     'center',
+                      justifyContent: 'center',
+                      gap:            10,
+                      borderWidth:    1.5,
+                      borderColor:    '#004481',
+                      borderRadius:   10,
+                      height:         52,
+                      marginBottom:   12,
+                    }}
+                  >
+                    <Ionicons name="finger-print-outline" size={22} color="#004481" />
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: '#004481' }}>
+                      Entrar con huella dactilar
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              )}
+
               <TouchableOpacity style={s.forgotWrap}>
                 <Text style={s.forgotTxt}>Olvidé mi contraseña</Text>
               </TouchableOpacity>

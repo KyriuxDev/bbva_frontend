@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView,
   StatusBar, ActivityIndicator, Alert, Modal,
@@ -54,6 +54,7 @@ const STALE = 5 * 60 * 1000;
 export default function Dashboard() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const lock   = useAuthStore((s) => s.lock);
   const logout = useAuthStore((s) => s.logout);
 
   // ── UI state ─────────────────────────────────────────────────
@@ -242,7 +243,45 @@ export default function Dashboard() {
     await Sharing.shareAsync(uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf', dialogTitle: 'Exportar PDF' });
   };
 
-  const handleLogout = async () => { await logout(); router.replace('/(auth)/welcome'); };
+  // Bloquea sin borrar token (muestra huella al volver)
+  const handleLock = () => lock();
+  const isLocked = useAuthStore((s) => s.isLocked);
+
+  
+
+  // Logout real (borra token, requiere contraseña)
+  const handleLogout = async () => {
+    await logout();
+    router.replace('/(auth)/welcome');
+  };
+
+  const handlePressLogout = () => {
+    Alert.alert(
+      'Cerrar sesión',
+      '¿Qué deseas hacer?',
+      [
+        {
+          text: 'Bloquear pantalla',
+          onPress: handleLock,
+        },
+        {
+          text: 'Cerrar sesión completa',
+          style: 'destructive',
+          onPress: handleLogout,
+        },
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+      ]
+    );
+  };
+
+  useEffect(() => {
+    if (isLocked) {
+      router.replace('/(auth)/login');
+    }
+  }, [isLocked]);
 
   const handleExportKpi = async (id: string) => {
     setExportingKpi(id);
@@ -410,7 +449,7 @@ export default function Dashboard() {
           <Text style={s.headerTitle}>BBVA</Text>
           <Text style={s.headerTimestamp}>Act. {lastUpdate}</Text>
         </View>
-        <TouchableOpacity style={s.headerBtn} onPress={handleLogout}>
+        <TouchableOpacity style={s.headerBtn} onPress={handlePressLogout}>
           <Ionicons name="log-out-outline" size={24} color="#004481" />
         </TouchableOpacity>
       </View>
