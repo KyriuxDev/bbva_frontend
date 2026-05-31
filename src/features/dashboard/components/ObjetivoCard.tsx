@@ -30,9 +30,17 @@ export function ObjetivoCard({ objetivo, idx, expandedId, setExpandedId }: Props
   const bg         = objetivo.prioridad === 'Alta'  ? '#fbebeb'
                    : objetivo.prioridad === 'Media' ? '#fff7e6' : '#e6f7f0';
   const isExpanded = expandedId === idx;
-  const progress   = objetivo.valorActual > objetivo.valorMeta
-    ? Math.round((objetivo.valorMeta / objetivo.valorActual) * 100)
-    : 100;
+
+  // FIX: clamp entre 0-100, proteger división por cero
+  const progress = (() => {
+    const actual = objetivo.valorActual ?? 0;
+    const meta   = objetivo.valorMeta   ?? 1;
+    if (actual <= 0) return 0;
+    if (actual <= meta) return 100; // ya cumplió la meta
+    // Cuánto del camino hacia la meta se ha recorrido (inverso: bajar de actual a meta)
+    const raw = Math.round((meta / actual) * 100);
+    return Math.min(Math.max(raw, 0), 100);
+  })();
 
   const estadoColor = objetivo.estado === 'En progreso' ? '#1973B8' : '#737781';
   const estadoBg    = objetivo.estado === 'En progreso' ? '#e8effa'  : '#f0f2f5';

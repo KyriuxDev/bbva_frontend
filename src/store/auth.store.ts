@@ -26,15 +26,21 @@ export const useAuthStore = create<AuthState>((set) => ({
       const token = await SecureStore.getItemAsync('access_token');
       const raw   = await SecureStore.getItemAsync('admin_payload');
       const admin = raw ? JSON.parse(raw) as AdminPayload : null;
-      // Si hay token, arranca bloqueado (pide huella), no autenticado directo
-      set({
-        accessToken:     token,
-        admin,
-        isAuthenticated: false,   // ← siempre false al arrancar
-        isLocked:        !!token, // ← si hay token, arranca bloqueado
-        isHydrated:      true,
-      });
-    } catch (e) {
+
+      if (token && admin) {
+        // Sesión previa existe → autenticar directo, sin pedir huella al arranque.
+        // El botón "Bloquear pantalla" del dashboard activa isLocked manualmente.
+        set({
+          accessToken:     token,
+          admin,
+          isAuthenticated: true,
+          isLocked:        false,
+          isHydrated:      true,
+        });
+      } else {
+        set({ isAuthenticated: false, isLocked: false, isHydrated: true });
+      }
+    } catch {
       set({ isAuthenticated: false, isLocked: false, isHydrated: true });
     }
   },
@@ -43,7 +49,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       await SecureStore.setItemAsync('access_token',  accessToken);
       await SecureStore.setItemAsync('admin_payload', JSON.stringify(admin));
-    } catch (e) {}
+    } catch {}
     set({ accessToken, admin, isAuthenticated: true, isLocked: false });
   },
 
@@ -53,7 +59,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       await SecureStore.deleteItemAsync('access_token');
       await SecureStore.deleteItemAsync('admin_payload');
-    } catch (e) {}
+    } catch {}
     set({ accessToken: null, admin: null, isAuthenticated: false, isLocked: false });
   },
 }));

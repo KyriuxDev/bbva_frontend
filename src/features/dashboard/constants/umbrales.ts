@@ -47,6 +47,7 @@ export const PASOS_ACCION: Record<string, string[]> = {
   ],
 };
 
+// OBJ_CONFIG: umbrales alineados con UMBRALES para evitar objetivos fantasma
 export const OBJ_CONFIG: Record<string, {
   umbral:    number;
   titulo:    string;
@@ -66,7 +67,7 @@ export const OBJ_CONFIG: Record<string, {
     ],
   },
   porcentajeFraudePotencial: {
-    umbral: 1.5, titulo: 'Reducir tasa de fraude al 1.5%', meta: 1.5,
+    umbral: 5, titulo: 'Reducir tasa de fraude al 5%', meta: 5,  // ← corregido de 1.5 a 5
     area: 'Seguridad y Prevención', icono: 'shield-outline', prioridad: 'Alta',
     acciones: [
       'Activar alertas de transacciones inusuales',
@@ -75,7 +76,7 @@ export const OBJ_CONFIG: Record<string, {
     ],
   },
   porcentajeCobrosExcedidos: {
-    umbral: 7, titulo: 'Reducir cobros excedidos al 7%', meta: 7,
+    umbral: 10, titulo: 'Reducir cobros excedidos al 10%', meta: 10, // ← corregido de 7 a 10
     area: 'Cumplimiento Normativo', icono: 'business-outline', prioridad: 'Media',
     acciones: [
       'Auditar tipos de cobro fuera de límite regulatorio',
@@ -84,7 +85,7 @@ export const OBJ_CONFIG: Record<string, {
     ],
   },
   porcentajeCuentasCanceladas: {
-    umbral: 10, titulo: 'Reducir cancelaciones al 10%', meta: 10,
+    umbral: 20, titulo: 'Reducir cancelaciones al 20%', meta: 20, // ← corregido de 10 a 20
     area: 'Retención de Clientes', icono: 'people-outline', prioridad: 'Media',
     acciones: [
       'Identificar causas de cancelación con encuestas',
@@ -93,7 +94,7 @@ export const OBJ_CONFIG: Record<string, {
     ],
   },
   porcentajeMetasFallidas: {
-    umbral: 20, titulo: 'Mejorar cumplimiento de metas al 80%', meta: 20,
+    umbral: 30, titulo: 'Mejorar cumplimiento de metas al 70%', meta: 30, // ← corregido de 20 a 30
     area: 'Productos de Ahorro', icono: 'wallet-outline', prioridad: 'Baja',
     acciones: [
       'Revisar metas vs perfil financiero del cliente',
