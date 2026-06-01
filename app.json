@@ -4,10 +4,39 @@
     "slug": "bbva-frontend",
     "version": "1.0.0",
     "scheme": "bbva-frontend",
-    "platforms": ["ios", "android"],
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "plugins": ["expo-router", "expo-secure-store", "expo-local-authentication"]
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-local-authentication",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      "expo-font"
+    ],
+    "android": {
+      "package": "com.kyriuxdev.bbvafrontend",
+      "permissions": [
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
+      ]
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "24441ad4-d6c0-4fe1-a966-d8f5d8a463d1"
+      }
+    }
   }
 }
