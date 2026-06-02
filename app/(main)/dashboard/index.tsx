@@ -49,6 +49,7 @@ import { fmt, fmtMXN, fmtMesLargo, calcTrimestre } from '@/src/features/dashboar
 
 // ── Estilos ──────────────────────────────────────────────────────────────────
 import { s } from '@/src/features/dashboard/styles/styles';
+import { ChatIA } from '@/src/features/dashboard/components/ChatIA';
 
 const STALE = 5 * 60 * 1000;
 
@@ -81,7 +82,7 @@ export default function Dashboard() {
   const logout = useAuthStore((s) => s.logout);
 
   // ── UI state ─────────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab]     = useState<'Inicio' | 'KPIs' | 'Debilidades' | 'Objetivos'>('Inicio');
+  const [activeTab, setActiveTab] = useState<'Inicio' | 'KPIs' | 'Debilidades' | 'Objetivos' | 'IA'>('Inicio');
   const [hideAmounts, setHideAmounts] = useState(false);
   const [refreshing, setRefreshing]   = useState(false);
   const [lastUpdate, setLastUpdate]   = useState(
@@ -1220,7 +1221,15 @@ export default function Dashboard() {
             <View style={{ height: 40 }} />
           </ScrollView>
         )}
+      {/* ══ IA ═══════════════════════════════════════════════════════════ */}
+      {activeTab === 'IA' && (
+        <View style={{ flex: 1 }}>
+          <ChatIA />
+        </View>
+      )}
       </View>
+
+
 
       {/* Modal de carga PDF */}
       <Modal visible={exportingKpi !== null || exportingAll} transparent animationType="fade">
@@ -1240,6 +1249,7 @@ export default function Dashboard() {
           { key: 'KPIs',        icon: 'bar-chart', iconO: 'bar-chart-outline' },
           { key: 'Debilidades', icon: 'warning',   iconO: 'warning-outline',   badge: altaCount },
           { key: 'Objetivos',   icon: 'flag',      iconO: 'flag-outline'       },
+          { key: 'IA', icon: 'sparkles', iconO: 'sparkles-outline' },
         ] as const).map(tab => (
           <TouchableOpacity key={tab.key} style={s.tabItem} onPress={() => setActiveTab(tab.key as any)}>
             <View>
