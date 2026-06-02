@@ -93,7 +93,8 @@ export default function Dashboard() {
   const [expandedObjId,      setExpandedObjId]      = useState<number | null>(null);
   const [exportingKpi,       setExportingKpi]       = useState<string | null>(null);
   const [exportingAll,       setExportingAll]       = useState(false);
-  const [comerciosModalVisible, setComerciosModalVisible] = useState(false);
+  const [comerciosModalVisible, setComerciosModalVisible] = useState(false); 
+  const [mensajesIA, setMensajesIA] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
 
   // ── Queries ───────────────────────────────────────────────────────────────
   const { data: kpisResumen,     refetch: rKpisResumen } = useQuery({ queryKey: ['kpis-resumen'],      queryFn: dashboardService.getKpisResumen,        staleTime: STALE });
@@ -1224,7 +1225,10 @@ export default function Dashboard() {
       {/* ══ IA ═══════════════════════════════════════════════════════════ */}
       {activeTab === 'IA' && (
         <View style={{ flex: 1 }}>
-          <ChatIA />
+          <ChatIA
+            mensajes={mensajesIA}
+            setMensajes={setMensajesIA}
+          />
         </View>
       )}
       </View>

@@ -13,6 +13,11 @@ interface Mensaje {
   content: string;
 }
 
+interface Props {
+  mensajes:    Mensaje[];
+  setMensajes: React.Dispatch<React.SetStateAction<Mensaje[]>>;
+}
+
 const SUGERENCIAS = [
   '¿Cuál es el estado general hoy?',
   '¿Qué indicador está más crítico?',
@@ -20,8 +25,8 @@ const SUGERENCIAS = [
   '¿Qué sucursal debo priorizar?',
 ];
 
-export function ChatIA() {
-  const [mensajes,     setMensajes]     = useState<Mensaje[]>([]);
+// ── Aquí estaba el bug: faltaba recibir las props ──
+export function ChatIA({ mensajes, setMensajes }: Props) {
   const [input,        setInput]        = useState('');
   const [cargando,     setCargando]     = useState(false);
   const [iaDisponible, setIaDisponible] = useState<boolean | null>(null);
@@ -37,11 +42,7 @@ export function ChatIA() {
     const texto = input.trim();
     if (!texto || cargando) return;
 
-    const nuevosMensajes: Mensaje[] = [
-      ...mensajes,
-      { role: 'user', content: texto },
-    ];
-    setMensajes(nuevosMensajes);
+    setMensajes(prev => [...prev, { role: 'user', content: texto }]);
     setInput('');
     setCargando(true);
 
@@ -71,7 +72,6 @@ export function ChatIA() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
-      {/* Solo el error va fuera del scroll — siempre visible */}
       {iaDisponible === false && (
         <View style={st.bannerError}>
           <Ionicons name="warning-outline" size={14} color="#ba1a1a" />
@@ -94,11 +94,8 @@ export function ChatIA() {
           scrollRef.current?.scrollToEnd({ animated: true })
         }
       >
-        {/* ══ ESTADO VACÍO ══ */}
         {mensajes.length === 0 && (
           <View style={st.emptyState}>
-
-            {/* Banner de estado como píldora */}
             {iaDisponible === true && (
               <View style={st.bannerOkInline}>
                 <Ionicons name="checkmark-circle-outline" size={13} color="#00a278" />
@@ -111,8 +108,6 @@ export function ChatIA() {
                 <Text style={st.bannerCheckingTxt}>Conectando...</Text>
               </View>
             )}
-
-            {/* Ícono y título */}
             <View style={st.iaIconBox}>
               <Ionicons name="sparkles" size={28} color="#004481" />
             </View>
@@ -120,8 +115,6 @@ export function ChatIA() {
             <Text style={st.emptySub}>
               Pregúntame sobre KPIs, fraude, clientes o cualquier métrica del dashboard.
             </Text>
-
-            {/* Sugerencias */}
             <View style={st.sugerenciasGrid}>
               {SUGERENCIAS.map((s, i) => (
                 <TouchableOpacity
@@ -137,7 +130,6 @@ export function ChatIA() {
           </View>
         )}
 
-        {/* ══ BURBUJAS DE CONVERSACIÓN ══ */}
         {mensajes.map((msg, i) => (
           <View
             key={i}
@@ -165,7 +157,6 @@ export function ChatIA() {
           </View>
         ))}
 
-        {/* ══ INDICADOR DE ESCRITURA ══ */}
         {cargando && (
           <View style={[st.bubbleWrap, st.bubbleWrapAI]}>
             <View style={st.avatarIA}>
@@ -181,7 +172,6 @@ export function ChatIA() {
         <View style={{ height: 8 }} />
       </ScrollView>
 
-      {/* ══ INPUT ══ */}
       <View style={st.inputRow}>
         {mensajes.length > 0 && (
           <TouchableOpacity
@@ -220,8 +210,6 @@ export function ChatIA() {
 }
 
 const st = StyleSheet.create({
-
-  // ── Banners ────────────────────────────────────────────────
   bannerError: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: '#fff4f4', paddingHorizontal: 16, paddingVertical: 8,
@@ -230,8 +218,6 @@ const st = StyleSheet.create({
   bannerErrorTxt: {
     fontSize: 11, color: '#ba1a1a', flex: 1, fontWeight: '600',
   },
-
-  // Banners inline (dentro del scroll, estado vacío)
   bannerOkInline: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: '#e6f7f0', paddingHorizontal: 14, paddingVertical: 6,
@@ -249,8 +235,6 @@ const st = StyleSheet.create({
   bannerCheckingTxt: {
     fontSize: 11, color: '#737781',
   },
-
-  // ── Scroll ─────────────────────────────────────────────────
   scroll: {
     flex: 1, backgroundColor: '#f4f6fa',
   },
@@ -261,8 +245,6 @@ const st = StyleSheet.create({
     justifyContent: 'flex-start',
     paddingTop: 32,
   },
-
-  // ── Estado vacío ───────────────────────────────────────────
   emptyState: {
     alignItems: 'center', paddingVertical: 8,
   },
@@ -291,8 +273,6 @@ const st = StyleSheet.create({
   sugerenciaTxt: {
     fontSize: 13, color: '#004481', fontWeight: '600', flex: 1,
   },
-
-  // ── Burbujas ───────────────────────────────────────────────
   bubbleWrap: {
     flexDirection: 'row', marginBottom: 12, alignItems: 'flex-end',
   },
@@ -337,8 +317,6 @@ const st = StyleSheet.create({
   typingTxt: {
     fontSize: 12, color: '#737781', fontStyle: 'italic',
   },
-
-  // ── Input ──────────────────────────────────────────────────
   inputRow: {
     flexDirection: 'row', alignItems: 'flex-end', gap: 8,
     padding: 12, backgroundColor: '#fff',
