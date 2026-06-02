@@ -3,6 +3,7 @@ import {
   View, Text, TouchableOpacity, ScrollView,
   StatusBar, ActivityIndicator, Alert, Modal,
   RefreshControl,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -1228,6 +1229,7 @@ export default function Dashboard() {
           <ChatIA
             mensajes={mensajesIA}
             setMensajes={setMensajesIA}
+            tabBarHeight={62 + insets.bottom}  // ← agrega esto
           />
         </View>
       )}
@@ -1247,7 +1249,7 @@ export default function Dashboard() {
       </Modal>
 
       {/* ── Tab Bar ── */}
-      <View style={s.tabBar}>
+      <View style={s.tabBar} onLayout={(e) => console.log('TAB HEIGHT:', e.nativeEvent.layout.height)}>
         {([
           { key: 'Inicio',      icon: 'home',      iconO: 'home-outline'      },
           { key: 'KPIs',        icon: 'bar-chart', iconO: 'bar-chart-outline' },
