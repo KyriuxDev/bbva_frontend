@@ -2,8 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView,
   StatusBar, ActivityIndicator, Alert, Modal,
-  RefreshControl,
-  KeyboardAvoidingView,
+  RefreshControl, StyleSheet, Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,6 +12,12 @@ import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/src/store/auth.store';
 import { dashboardService } from '@/src/features/dashboard/dashboard.service';
 import { ComerciosModal } from '@/src/features/dashboard/components/ComerciosModal';
+
+// ── Período ──────────────────────────────────────────────────────────────────
+import { usePeriodo, calcDelta } from '@/src/features/dashboard/hooks/usePeriodo';
+import { PeriodoSelector }        from '@/src/features/dashboard/components/PeriodoSelector';
+import { DeltaBadge }             from '@/src/features/dashboard/components/DeltaBadge';
+import { dashboardPeriodoService } from '@/src/features/dashboard/dashboard.service.periodo';
 
 // ── Exportación ──────────────────────────────────────────────────────────────
 import {
@@ -52,9 +57,59 @@ import { fmt, fmtMXN, fmtMesLargo, calcTrimestre } from '@/src/features/dashboar
 import { s } from '@/src/features/dashboard/styles/styles';
 import { ChatIA } from '@/src/features/dashboard/components/ChatIA';
 
-const STALE = 5 * 60 * 1000;
+const STALE  = 5 * 60 * 1000;
+const { width } = Dimensions.get('window');
 
-// ── Botón de exportación reutilizable ────────────────────────────────────────
+// ── Estilos locales para las tarjetas de período ──────────────────────────────
+const sp = StyleSheet.create({
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 20,
+  },
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 14,
+    width: (width - 42) / 2,
+    borderWidth: 1,
+    borderColor: 'rgba(194,198,210,0.4)',
+    elevation: 2,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  anterior: {
+    fontSize: 10,
+    color: '#b0c8e8',
+    marginTop: 4,
+    fontWeight: '500',
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+    gap: 8,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(194,198,210,0.5)',
+  },
+  dividerTxt: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#737781',
+    letterSpacing: 1.2,
+  },
+});
+
+// ── Botón de exportación reutilizable ─────────────────────────────────────────
 function ExportBtn({
   id, exportingKpi, exportingAll, onPress,
 }: {
@@ -82,7 +137,10 @@ export default function Dashboard() {
   const lock   = useAuthStore((s) => s.lock);
   const logout = useAuthStore((s) => s.logout);
 
-  // ── UI state ─────────────────────────────────────────────────────────────
+  // ── Período ───────────────────────────────────────────────────────────────
+  const { periodo, seleccion, setTipo, setAnio, setSub } = usePeriodo();
+
+  // ── UI state ──────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<'Inicio' | 'KPIs' | 'Debilidades' | 'Objetivos' | 'IA'>('Inicio');
   const [hideAmounts, setHideAmounts] = useState(false);
   const [refreshing, setRefreshing]   = useState(false);
@@ -94,10 +152,10 @@ export default function Dashboard() {
   const [expandedObjId,      setExpandedObjId]      = useState<number | null>(null);
   const [exportingKpi,       setExportingKpi]       = useState<string | null>(null);
   const [exportingAll,       setExportingAll]       = useState(false);
-  const [comerciosModalVisible, setComerciosModalVisible] = useState(false); 
+  const [comerciosModalVisible, setComerciosModalVisible] = useState(false);
   const [mensajesIA, setMensajesIA] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
 
-  // ── Queries ───────────────────────────────────────────────────────────────
+  // ── Queries generales ─────────────────────────────────────────────────────
   const { data: kpisResumen,     refetch: rKpisResumen } = useQuery({ queryKey: ['kpis-resumen'],      queryFn: dashboardService.getKpisResumen,        staleTime: STALE });
   const { data: etlResumen,      refetch: rEtl         } = useQuery({ queryKey: ['etl-resumen'],       queryFn: dashboardService.getEtlResumen,         staleTime: STALE });
   const { data: debilidadesData, refetch: rDebilidades } = useQuery({ queryKey: ['debilidades'],       queryFn: dashboardService.getDebilidades,        staleTime: STALE });
@@ -131,6 +189,47 @@ export default function Dashboard() {
   const { data: tasasInteres        = [], isLoading: loadTasas,     refetch: rTasas     } = useQuery({ queryKey: ['kpis-tasas'],             queryFn: dashboardService.getTasaInteresPrestamos,       staleTime: STALE });
   const { data: metasEstatus        = [], isLoading: loadMetasEst,  refetch: rMetasEst  } = useQuery({ queryKey: ['kpis-metas-estatus'],     queryFn: dashboardService.getMetasAhorroPorEstatus,     staleTime: STALE });
   const { data: metasProgreso,            isLoading: loadMetasProg, refetch: rMetasProg } = useQuery({ queryKey: ['kpis-metas-progreso'],    queryFn: dashboardService.getMetasAhorroProgreso,       staleTime: STALE });
+
+  // ── Queries de período ────────────────────────────────────────────────────
+  const { data: resumenActual } = useQuery({
+    queryKey: ['resumen-periodo-actual', periodo.queryKey],
+    queryFn:  () => dashboardPeriodoService.getResumenPeriodo(periodo.actual),
+    staleTime: STALE,
+  });
+  const { data: resumenAnterior } = useQuery({
+    queryKey: ['resumen-periodo-anterior', periodo.queryKey],
+    queryFn:  () => dashboardPeriodoService.getResumenPeriodo(periodo.anterior),
+    staleTime: STALE,
+  });
+  const { data: fraudeActual } = useQuery({
+    queryKey: ['fraude-periodo-actual', periodo.queryKey],
+    queryFn:  () => dashboardPeriodoService.getFraudePeriodo(periodo.actual),
+    staleTime: STALE,
+  });
+  const { data: fraudeAnterior } = useQuery({
+    queryKey: ['fraude-periodo-anterior', periodo.queryKey],
+    queryFn:  () => dashboardPeriodoService.getFraudePeriodo(periodo.anterior),
+    staleTime: STALE,
+  });
+  const { data: clientesNuevosActual } = useQuery({
+    queryKey: ['clientes-nuevos-actual', periodo.queryKey],
+    queryFn:  () => dashboardPeriodoService.getClientesNuevosPeriodo(periodo.actual),
+    staleTime: STALE,
+  });
+  const { data: clientesNuevosAnterior } = useQuery({
+    queryKey: ['clientes-nuevos-anterior', periodo.queryKey],
+    queryFn:  () => dashboardPeriodoService.getClientesNuevosPeriodo(periodo.anterior),
+    staleTime: STALE,
+  });
+
+  // ── Deltas de período ─────────────────────────────────────────────────────
+  const deltaClientes       = calcDelta(resumenActual?.totalClientes     ?? 0, resumenAnterior?.totalClientes     ?? 0);
+  const deltaCuentas        = calcDelta(resumenActual?.cuentasActivas    ?? 0, resumenAnterior?.cuentasActivas    ?? 0);
+  const deltaSaldo          = calcDelta(resumenActual?.saldoTotalCuentas ?? 0, resumenAnterior?.saldoTotalCuentas ?? 0);
+  const deltaTx             = calcDelta(resumenActual?.transacciones     ?? 0, resumenAnterior?.transacciones     ?? 0);
+  const deltaFraudes        = calcDelta(fraudeActual?.totalFraudes       ?? 0, fraudeAnterior?.totalFraudes       ?? 0);
+  const deltaCobros         = calcDelta(resumenActual?.cobrosExcedidos   ?? 0, resumenAnterior?.cobrosExcedidos   ?? 0);
+  const deltaClientesNuevos = calcDelta(clientesNuevosActual?.nuevos     ?? 0, clientesNuevosAnterior?.nuevos     ?? 0);
 
   // ── Pull-to-refresh ───────────────────────────────────────────────────────
   const onRefresh = useCallback(async () => {
@@ -363,7 +462,6 @@ export default function Dashboard() {
 
   // ── Auth / Lock ───────────────────────────────────────────────────────────
   const isLocked = useAuthStore((st) => st.isLocked);
-
   const handleLock = () => lock();
   const handleLogout = async () => {
     await logout();
@@ -371,9 +469,9 @@ export default function Dashboard() {
   };
   const handlePressLogout = () => {
     Alert.alert('Cerrar sesión', '¿Qué deseas hacer?', [
-      { text: 'Bloquear pantalla',     onPress: handleLock },
+      { text: 'Bloquear pantalla',      onPress: handleLock },
       { text: 'Cerrar sesión completa', style: 'destructive', onPress: handleLogout },
-      { text: 'Cancelar',              style: 'cancel' },
+      { text: 'Cancelar',               style: 'cancel' },
     ]);
   };
 
@@ -406,10 +504,12 @@ export default function Dashboard() {
 
         {/* ══ INICIO ══════════════════════════════════════════════════════════ */}
         {activeTab === 'Inicio' && (
-          <ScrollView style={s.scrollBody} contentContainerStyle={s.scrollContent}
+          <ScrollView
+            style={s.scrollBody}
+            contentContainerStyle={s.scrollContent}
             showsVerticalScrollIndicator={false}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#004481']} tintColor="#004481" />}>
-
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#004481']} tintColor="#004481" />}
+          >
             <View style={s.bannerCard}>
               <Text style={s.bannerTitle}>Hola, Admin</Text>
               <Text style={s.bannerSub}>Panel de análisis BBVA</Text>
@@ -430,8 +530,11 @@ export default function Dashboard() {
                 ? `${estadoGlobal.peor.label} al ${estadoGlobal.peor.valor.toFixed(1)}%`
                 : 'Todos los indicadores dentro del rango esperado';
               return (
-                <TouchableOpacity style={[s.statusBanner, { backgroundColor: bg, borderColor: color + '40' }]}
-                  onPress={() => setActiveTab('Debilidades')} activeOpacity={0.82}>
+                <TouchableOpacity
+                  style={[s.statusBanner, { backgroundColor: bg, borderColor: color + '40' }]}
+                  onPress={() => setActiveTab('Debilidades')}
+                  activeOpacity={0.82}
+                >
                   <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: color + '18', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <Ionicons name={icon as any} size={17} color={color} />
                   </View>
@@ -447,12 +550,12 @@ export default function Dashboard() {
             <Text style={s.sectionTitle}>Indicadores Generales</Text>
             <View style={s.kpiGrid}>
               {[
-                { icon: 'people-outline',          label: 'Total Clientes',     val: kpisResumen && fmt(kpisResumen.totalClientes),        trend: 'up',   txt: 'Registrados'    },
-                { icon: 'checkmark-circle-outline', label: 'Cuentas Activas',   val: kpisResumen && fmt(kpisResumen.cuentasActivas),       trend: 'up',   txt: 'Vigentes'       },
-                { icon: 'cash-outline',             label: 'Saldo Total',       val: kpisResumen && fmtMXN(kpisResumen.saldoTotalCuentas), trend: 'up',   txt: 'Cuentas act.'   },
-                { icon: 'trending-up-outline',      label: 'Transacciones Hoy', val: kpisResumen && fmt(kpisResumen.transaccionesHoy),     trend: 'up',   txt: 'Último día'     },
-                { icon: 'shield-outline',           label: 'Alertas Fraude',    val: kpisResumen && fmt(kpisResumen.fraudesPotenciales),   trend: 'down', txt: 'Potenciales'    },
-                { icon: 'alert-circle-outline',     label: 'Cobros Excedidos',  val: kpisResumen && fmt(kpisResumen.cobrosExcedidos),      trend: 'warn', txt: 'Exceden límite' },
+                { icon: 'people-outline',           label: 'Total Clientes',     val: kpisResumen && fmt(kpisResumen.totalClientes),        trend: 'up',   txt: 'Registrados'    },
+                { icon: 'checkmark-circle-outline',  label: 'Cuentas Activas',   val: kpisResumen && fmt(kpisResumen.cuentasActivas),       trend: 'up',   txt: 'Vigentes'       },
+                { icon: 'cash-outline',              label: 'Saldo Total',       val: kpisResumen && fmtMXN(kpisResumen.saldoTotalCuentas), trend: 'up',   txt: 'Cuentas act.'   },
+                { icon: 'trending-up-outline',       label: 'Transacciones Hoy', val: kpisResumen && fmt(kpisResumen.transaccionesHoy),     trend: 'up',   txt: 'Último día'     },
+                { icon: 'shield-outline',            label: 'Alertas Fraude',    val: kpisResumen && fmt(kpisResumen.fraudesPotenciales),   trend: 'down', txt: 'Potenciales'    },
+                { icon: 'alert-circle-outline',      label: 'Cobros Excedidos',  val: kpisResumen && fmt(kpisResumen.cobrosExcedidos),      trend: 'warn', txt: 'Exceden límite' },
               ].map((kpi, i) => {
                 const tc = kpi.trend === 'up' ? '#00a278' : kpi.trend === 'down' ? '#ba1a1a' : '#fbbd08';
                 const ti = kpi.trend === 'up' ? 'trending-up' : kpi.trend === 'down' ? 'trending-down' : 'alert-circle-outline';
@@ -475,8 +578,7 @@ export default function Dashboard() {
             </View>
 
             <Text style={s.sectionTitle}>Análisis rápido</Text>
-            <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}
-              style={s.carousel} contentContainerStyle={{ paddingRight: 20 }}>
+            <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} style={s.carousel} contentContainerStyle={{ paddingRight: 20 }}>
               <View style={s.carouselCard}>
                 <Text style={s.carouselTitle}>Fraude por canal</Text>
                 <Text style={s.carouselSub}>Distribución porcentual</Text>
@@ -546,14 +648,101 @@ export default function Dashboard() {
 
         {/* ══ KPIs ════════════════════════════════════════════════════════════ */}
         {activeTab === 'KPIs' && (
-          <ScrollView style={s.scrollBody} contentContainerStyle={s.scrollContent}
+          <ScrollView
+            style={s.scrollBody}
+            contentContainerStyle={s.scrollContent}
             showsVerticalScrollIndicator={false}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#004481']} tintColor="#004481" />}>
-
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#004481']} tintColor="#004481" />}
+          >
             <Text style={s.tabMainTitle}>Indicadores Clave</Text>
             <Text style={s.tabSubtitle}>Toca las barras para más detalle · Desliza la línea para ver valores</Text>
 
-            {/* ── TRANSACCIONES ── */}
+            {/* ── SELECTOR DE PERÍODO ───────────────────────────────────────── */}
+            <PeriodoSelector
+              seleccion={seleccion}
+              periodo={periodo}
+              onTipo={setTipo}
+              onAnio={setAnio}
+              onSub={setSub}
+            />
+
+            {/* ── TARJETAS DE CRECIMIENTO CON DELTA ────────────────────────── */}
+            <Text style={s.sectionHeader}>CRECIMIENTO {periodo.label.toUpperCase()} VS {seleccion.anio - 1}</Text>
+            <View style={sp.grid}>
+              {[
+                {
+                  icono: 'person-add-outline',
+                  label: 'Clientes nuevos',
+                  valor: fmt(clientesNuevosActual?.nuevos ?? 0),
+                  delta: deltaClientesNuevos,
+                  invertido: false,
+                  ant: fmt(clientesNuevosAnterior?.nuevos ?? 0),
+                },
+                {
+                  icono: 'checkmark-circle-outline',
+                  label: 'Cuentas activas',
+                  valor: fmt(resumenActual?.cuentasActivas ?? 0),
+                  delta: deltaCuentas,
+                  invertido: false,
+                  ant: fmt(resumenAnterior?.cuentasActivas ?? 0),
+                },
+                {
+                  icono: 'cash-outline',
+                  label: 'Saldo total',
+                  valor: fmtMXN(resumenActual?.saldoTotalCuentas ?? 0),
+                  delta: deltaSaldo,
+                  invertido: false,
+                  ant: fmtMXN(resumenAnterior?.saldoTotalCuentas ?? 0),
+                },
+                {
+                  icono: 'swap-horizontal-outline',
+                  label: 'Transacciones',
+                  valor: fmt(resumenActual?.transacciones ?? 0),
+                  delta: deltaTx,
+                  invertido: false,
+                  ant: fmt(resumenAnterior?.transacciones ?? 0),
+                },
+                {
+                  icono: 'shield-outline',
+                  label: 'Fraudes detec.',
+                  valor: fmt(fraudeActual?.totalFraudes ?? 0),
+                  delta: deltaFraudes,
+                  invertido: true,
+                  ant: fmt(fraudeAnterior?.totalFraudes ?? 0),
+                },
+                {
+                  icono: 'alert-circle-outline',
+                  label: 'Cobros excedidos',
+                  valor: fmt(resumenActual?.cobrosExcedidos ?? 0),
+                  delta: deltaCobros,
+                  invertido: true,
+                  ant: fmt(resumenAnterior?.cobrosExcedidos ?? 0),
+                },
+              ].map((kpi, i) => (
+                <View key={i} style={sp.card}>
+                  <View style={sp.cardHeader}>
+                    <View style={s.iconWrapper}>
+                      <Ionicons name={kpi.icono as any} size={18} color="#004481" />
+                    </View>
+                    <DeltaBadge delta={kpi.delta} invertido={kpi.invertido} size="sm" />
+                  </View>
+                  <Text style={s.kpiValue}>{hideAmounts ? '•••••' : kpi.valor}</Text>
+                  <Text style={s.kpiLabel}>{kpi.label}</Text>
+                  <Text style={sp.anterior}>
+                    Ant: {hideAmounts ? '•••' : kpi.ant}
+                  </Text>
+                </View>
+              ))}
+            </View>
+
+            {/* ── Separador ─────────────────────────────────────────────────── */}
+            <View style={sp.divider}>
+              <View style={sp.dividerLine} />
+              <Text style={sp.dividerTxt}>DETALLE COMPLETO</Text>
+              <View style={sp.dividerLine} />
+            </View>
+
+            {/* ── TRANSACCIONES ─────────────────────────────────────────────── */}
             <Text style={s.sectionHeader}>TRANSACCIONES</Text>
 
             <View style={s.kpiDetailCard}>
@@ -601,7 +790,7 @@ export default function Dashboard() {
               </> : <SkeletonCard lines={5} />}
             </View>
 
-            {/* ── ETL ── */}
+            {/* ── ETL ───────────────────────────────────────────────────────── */}
             <Text style={s.sectionHeader}>ETL PIPELINE</Text>
             <View style={s.kpiDetailCard}>
               <View style={s.kpiCardHdr}>
@@ -629,7 +818,7 @@ export default function Dashboard() {
               ) : <SkeletonCard lines={5} />}
             </View>
 
-            {/* ── CLIENTES ── */}
+            {/* ── CLIENTES ──────────────────────────────────────────────────── */}
             <Text style={s.sectionHeader}>CLIENTES</Text>
             <View style={s.sideBySideRow}>
               <View style={s.halfCard}>
@@ -648,7 +837,7 @@ export default function Dashboard() {
               </View>
             </View>
 
-            {/* ── PRÉSTAMOS ── */}
+            {/* ── PRÉSTAMOS ─────────────────────────────────────────────────── */}
             <Text style={s.sectionHeader}>PRÉSTAMOS</Text>
             <View style={s.kpiDetailCard}>
               <View style={s.kpiCardHdr}>
@@ -670,7 +859,7 @@ export default function Dashboard() {
               </>}
             </View>
 
-            {/* ── CUENTAS ── */}
+            {/* ── CUENTAS ───────────────────────────────────────────────────── */}
             <Text style={s.sectionHeader}>CUENTAS</Text>
             <View style={s.kpiDetailCard}>
               <View style={s.kpiCardHdr}>
@@ -701,7 +890,7 @@ export default function Dashboard() {
               </>}
             </View>
 
-            {/* ── COMISIONES ── */}
+            {/* ── COMISIONES ────────────────────────────────────────────────── */}
             <Text style={s.sectionHeader}>COMISIONES</Text>
             <View style={s.kpiDetailCard}>
               <View style={s.kpiCardHdr}>
@@ -717,7 +906,7 @@ export default function Dashboard() {
                   </View>}
             </View>
 
-            {/* ── CRÉDITO — TARJETAS ── */}
+            {/* ── CRÉDITO — TARJETAS ────────────────────────────────────────── */}
             <Text style={s.sectionHeader}>CRÉDITO — TARJETAS</Text>
 
             <View style={s.kpiDetailCard}>
@@ -836,7 +1025,7 @@ export default function Dashboard() {
               )}
             </View>
 
-            {/* ── PRÉSTAMOS — PRICING ── */}
+            {/* ── PRÉSTAMOS — PRICING ───────────────────────────────────────── */}
             <Text style={s.sectionHeader}>PRÉSTAMOS — PRICING</Text>
             <View style={s.kpiDetailCard}>
               <View style={s.kpiCardHdr}>
@@ -879,7 +1068,7 @@ export default function Dashboard() {
               ) : <SkeletonCard lines={4} />}
             </View>
 
-            {/* ── METAS DE AHORRO ── */}
+            {/* ── METAS DE AHORRO ───────────────────────────────────────────── */}
             <Text style={s.sectionHeader}>METAS DE AHORRO</Text>
             <View style={s.kpiDetailCard}>
               <View style={s.kpiCardHdr}>
@@ -927,7 +1116,7 @@ export default function Dashboard() {
               )}
             </View>
 
-            {/* ── GEOGRAFÍA ── */}
+            {/* ── GEOGRAFÍA ─────────────────────────────────────────────────── */}
             <Text style={s.sectionHeader}>GEOGRAFÍA</Text>
             <View style={s.kpiDetailCard}>
               <Text style={s.cardTitle}>Mapa de fraude por zona</Text>
@@ -940,7 +1129,7 @@ export default function Dashboard() {
                   </View>}
             </View>
 
-            {/* ── COMERCIOS ── */}
+            {/* ── COMERCIOS ─────────────────────────────────────────────────── */}
             <Text style={s.sectionHeader}>COMERCIOS</Text>
             {loadCom
               ? <>{[1, 2, 3].map(i => <SkeletonCard key={i} height={130} lines={3} />)}</>
@@ -949,8 +1138,10 @@ export default function Dashboard() {
                     <ComercioCard key={idx} item={item} idx={idx} expandedId={expandedComercioId} setExpandedId={setExpandedComercioId} />
                   ))}
                   {fraudeComercio.length > 5 && (
-                    <TouchableOpacity onPress={() => setComerciosModalVisible(true)}
-                      style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#fff', borderRadius: 14, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: '#004481' }}>
+                    <TouchableOpacity
+                      onPress={() => setComerciosModalVisible(true)}
+                      style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#fff', borderRadius: 14, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: '#004481' }}
+                    >
                       <Ionicons name="storefront-outline" size={18} color="#004481" />
                       <Text style={{ fontSize: 14, fontWeight: '700', color: '#004481' }}>
                         Ver los {fraudeComercio.length - 5} comercios restantes
@@ -965,7 +1156,7 @@ export default function Dashboard() {
                   <Text style={{ color: '#aaa', fontWeight: '600' }}>Sin datos de comercios</Text>
                 </View>}
 
-            {/* ── PAGOS ── */}
+            {/* ── PAGOS ─────────────────────────────────────────────────────── */}
             <Text style={s.sectionHeader}>PAGOS</Text>
             <View style={s.kpiDetailCard}>
               <View style={s.kpiCardHdr}>
@@ -979,7 +1170,7 @@ export default function Dashboard() {
                 <AnimatedBarChart data={pagosPorEstatus.map(d => ({ label: d.estatus, value: d.total }))}
                   colorFn={(i) => ['#00a278', '#ba1a1a', '#fbbd08'][i] ?? PALETTE[i]} valueFormatter={fmt} />
                 {(() => {
-                  const exitoso = pagosPorEstatus.find(p => p.estatus?.toLowerCase().includes('exit'));
+                  const exitoso  = pagosPorEstatus.find(p => p.estatus?.toLowerCase().includes('exit'));
                   if (!exitoso) return null;
                   const esRiesgo = exitoso.porcentaje < 95;
                   return (
@@ -1024,7 +1215,7 @@ export default function Dashboard() {
               </> : null}
             </View>
 
-            {/* ── SEGUROS & AHORRO ── */}
+            {/* ── SEGUROS & AHORRO ──────────────────────────────────────────── */}
             <Text style={s.sectionHeader}>SEGUROS & AHORRO</Text>
             <View style={s.kpiDetailCard}>
               <View style={s.kpiCardHdr}>
@@ -1051,7 +1242,7 @@ export default function Dashboard() {
               </> : <SkeletonCard lines={3} />}
             </View>
 
-            {/* ── COMUNICACIÓN ── */}
+            {/* ── COMUNICACIÓN ──────────────────────────────────────────────── */}
             <Text style={s.sectionHeader}>COMUNICACIÓN</Text>
             <View style={s.kpiDetailCard}>
               <View style={s.kpiCardHdr}>
@@ -1092,7 +1283,7 @@ export default function Dashboard() {
               </> : <SkeletonCard lines={3} />}
             </View>
 
-            {/* ── CAPTACIÓN COMERCIAL ── */}
+            {/* ── CAPTACIÓN COMERCIAL ───────────────────────────────────────── */}
             <Text style={s.sectionHeader}>CAPTACIÓN COMERCIAL</Text>
             <View style={s.kpiDetailCard}>
               <View style={s.kpiCardHdr}>
@@ -1117,20 +1308,26 @@ export default function Dashboard() {
 
         {/* Botón flotante exportar todo */}
         {activeTab === 'KPIs' && (
-          <TouchableOpacity style={s.floatingExportBtn} onPress={handleExportAll}
-            disabled={exportingKpi !== null || exportingAll} activeOpacity={0.85}>
+          <TouchableOpacity
+            style={s.floatingExportBtn}
+            onPress={handleExportAll}
+            disabled={exportingKpi !== null || exportingAll}
+            activeOpacity={0.85}
+          >
             {exportingAll
               ? <ActivityIndicator color="#fff" />
               : <Ionicons name="document-outline" size={24} color="#fff" />}
           </TouchableOpacity>
         )}
 
-        {/* ══ DEBILIDADES ═════════════════════════════════════════════════════ */}
+        {/* ══ DEBILIDADES ══════════════════════════════════════════════════════ */}
         {activeTab === 'Debilidades' && (
-          <ScrollView style={s.scrollBody} contentContainerStyle={s.scrollContent}
+          <ScrollView
+            style={s.scrollBody}
+            contentContainerStyle={s.scrollContent}
             showsVerticalScrollIndicator={false}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#004481']} tintColor="#004481" />}>
-
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#004481']} tintColor="#004481" />}
+          >
             <Text style={s.tabMainTitle}>Debilidades Detectadas</Text>
             <Text style={s.tabSubtitle}>Análisis automático basado en datos reales</Text>
 
@@ -1177,12 +1374,14 @@ export default function Dashboard() {
           </ScrollView>
         )}
 
-        {/* ══ OBJETIVOS ══════════════════════════════════════════════════════ */}
+        {/* ══ OBJETIVOS ════════════════════════════════════════════════════════ */}
         {activeTab === 'Objetivos' && (
-          <ScrollView style={s.scrollBody} contentContainerStyle={s.scrollContent}
+          <ScrollView
+            style={s.scrollBody}
+            contentContainerStyle={s.scrollContent}
             showsVerticalScrollIndicator={false}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#004481']} tintColor="#004481" />}>
-
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#004481']} tintColor="#004481" />}
+          >
             <Text style={s.tabMainTitle}>Objetivos</Text>
             <Text style={s.tabSubtitle}>Metas estratégicas generadas automáticamente</Text>
 
@@ -1223,19 +1422,19 @@ export default function Dashboard() {
             <View style={{ height: 40 }} />
           </ScrollView>
         )}
-      {/* ══ IA ═══════════════════════════════════════════════════════════ */}
-      {activeTab === 'IA' && (
-        <View style={{ flex: 1 }}>
-          <ChatIA
-            mensajes={mensajesIA}
-            setMensajes={setMensajesIA}
-            tabBarHeight={62 + insets.bottom}  // ← agrega esto
-          />
-        </View>
-      )}
+
+        {/* ══ IA ═══════════════════════════════════════════════════════════════ */}
+        {activeTab === 'IA' && (
+          <View style={{ flex: 1 }}>
+            <ChatIA
+              mensajes={mensajesIA}
+              setMensajes={setMensajesIA}
+              tabBarHeight={62 + insets.bottom}
+            />
+          </View>
+        )}
+
       </View>
-
-
 
       {/* Modal de carga PDF */}
       <Modal visible={exportingKpi !== null || exportingAll} transparent animationType="fade">
@@ -1249,18 +1448,21 @@ export default function Dashboard() {
       </Modal>
 
       {/* ── Tab Bar ── */}
-      <View style={s.tabBar} onLayout={(e) => console.log('TAB HEIGHT:', e.nativeEvent.layout.height)}>
+      <View style={s.tabBar}>
         {([
           { key: 'Inicio',      icon: 'home',      iconO: 'home-outline'      },
           { key: 'KPIs',        icon: 'bar-chart', iconO: 'bar-chart-outline' },
           { key: 'Debilidades', icon: 'warning',   iconO: 'warning-outline',   badge: altaCount },
           { key: 'Objetivos',   icon: 'flag',      iconO: 'flag-outline'       },
-          { key: 'IA', icon: 'sparkles', iconO: 'sparkles-outline' },
+          { key: 'IA',          icon: 'sparkles',  iconO: 'sparkles-outline'   },
         ] as const).map(tab => (
           <TouchableOpacity key={tab.key} style={s.tabItem} onPress={() => setActiveTab(tab.key as any)}>
             <View>
-              <Ionicons name={(activeTab === tab.key ? tab.icon : tab.iconO) as any}
-                size={22} color={activeTab === tab.key ? '#004481' : '#737781'} />
+              <Ionicons
+                name={(activeTab === tab.key ? tab.icon : tab.iconO) as any}
+                size={22}
+                color={activeTab === tab.key ? '#004481' : '#737781'}
+              />
               {'badge' in tab && tab.badge > 0 && (
                 <View style={s.badgeBadge}>
                   <Text style={s.badgeBadgeTxt}>{tab.badge}</Text>
