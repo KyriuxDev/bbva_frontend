@@ -52,7 +52,8 @@ export function ChatIA({ mensajes, setMensajes, tabBarHeight }: Props) {
     api.get('/ai/status')
       .then(({ data }) => {
         setIaDisponible(data.disponible);
-        if (data.modelos?.length) setModelo(data.modelos[0]);
+        if (data.modelo_activo) setModelo(data.modelo_activo);
+        else if (data.modelos?.length) setModelo(data.modelos[0]);
       })
       .catch(() => setIaDisponible(false));
   }, []);
